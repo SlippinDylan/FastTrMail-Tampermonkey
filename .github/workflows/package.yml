@@ -1,0 +1,93 @@
+name: package-userscript
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read userscript version
+        id: version
+        run: |
+          VERSION="$(jq -r '.version' package.json)"
+          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Build userscript
+        run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasttrmail-tampermonkey-${{ steps.version.outputs.value }}
+          path: |
+            dist/fasttrmail.user.js
+            dist/fasttrmail-tampermonkey-${{ steps.version.outputs.value }}.user.js
+
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## FastTrMail Tampermonkey package"
+            echo ""
+            echo "- Version: \`${VERSION}\`"
+            echo "- Install script: \`dist/fasttrmail.user.js\`"
+            echo "- Release script: \`dist/fasttrmail-tampermonkey-${VERSION}.user.js\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish versioned release asset
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="$VERSION"
+          RELEASE_TITLE="v$VERSION"
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "Automated release build from \`main\`."
+            echo ""
+            echo "- Version: \`${VERSION}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } > "$NOTES_FILE"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            CURRENT_RELEASE_SHA="$(gh release view "$TAG_NAME" --json targetCommitish --jq '.targetCommitish')"
+            if [[ "$CURRENT_RELEASE_SHA" != "$GITHUB_SHA" ]]; then
+              echo "Version $VERSION is already published for commit $CURRENT_RELEASE_SHA. Bump package.json before publishing a new release from $GITHUB_SHA." >&2
+              exit 1
+            fi
+            gh release edit "$TAG_NAME" --title "$RELEASE_TITLE" --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG_NAME" --target "$GITHUB_SHA" --title "$RELEASE_TITLE" --notes-file "$NOTES_FILE"
+          fi
+
+          gh release view "$TAG_NAME" --json assets --jq '.assets[].name' \
+            | while IFS= read -r asset_name; do
+                if [[ "$asset_name" == fasttrmail-tampermonkey-${VERSION}.user.js ]]; then
+                  gh release delete-asset "$TAG_NAME" "$asset_name" --yes >/dev/null 2>&1 || true
+                fi
+              done
+
+          gh release upload "$TAG_NAME" \
+            "dist/fasttrmail-tampermonkey-${VERSION}.user.js" \
+            --clobber

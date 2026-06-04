@@ -1,0 +1,13 @@
+{
+  "name": "fasttrmail-tampermonkey",
+  "private": true,
+  "version": "0.1.0",
+  "devDependencies": {
+    "esbuild": "^0.27.0",
+    "jsdom": "^26.1.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "node --test tests/*.test.js"
+  }
+}
