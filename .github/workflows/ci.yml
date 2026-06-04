@@ -5,9 +5,21 @@ env:
 
 on:
   pull_request:
+    paths-ignore:
+      - .gitignore
+      - README.md
+      - README.en.md
+      - LICENSE
+      - docs/**
   push:
     branches:
       - main
+    paths-ignore:
+      - .gitignore
+      - README.md
+      - README.en.md
+      - LICENSE
+      - docs/**
 
 jobs:
   validate:

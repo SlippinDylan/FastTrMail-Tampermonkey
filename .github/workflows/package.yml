@@ -7,6 +7,12 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - .gitignore
+      - README.md
+      - README.en.md
+      - LICENSE
+      - docs/**
   workflow_dispatch:
 
 jobs:
