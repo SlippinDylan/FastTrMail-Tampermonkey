@@ -85,12 +85,15 @@ function createStyles(constants) {
 
     .${constants.MODAL_CLASS} footer {
       display: flex;
-      justify-content: flex-end;
+      justify-content: center;
       gap: 10px;
       margin-top: 20px;
     }
 
     .${constants.MODAL_CLASS} button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       min-width: 88px;
       height: 38px;
       padding: 0 14px;

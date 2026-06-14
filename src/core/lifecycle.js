@@ -8,10 +8,15 @@ function createLifecycle({
 }) {
   const TRANSLATE_CLICK_HANDLED = Symbol.for("fasttrmail.translateClickHandled");
   let observer = null;
+  let initialized = false;
+  let observing = false;
 
   function initialize() {
-    app.injectButtons(document);
-    document.addEventListener("click", handleDocumentClick, true);
+    if (initialized) {
+      return;
+    }
+
+    initialized = true;
 
     observer = new MutationObserver((mutations) => {
       if (runtimeState.state.observerMuteDepth > 0) {
@@ -28,6 +33,28 @@ function createLifecycle({
         scheduleObservedThreadRefresh(affectedThreadRoots);
       }
     });
+    runtimeState.setObserverControl({
+      suspend: suspendObserver,
+      resume: resumeObserver
+    });
+    app.injectButtons(document);
+    document.addEventListener("click", handleDocumentClick, true);
+    resumeObserver();
+  }
+
+  function suspendObserver() {
+    if (!observer || !observing) {
+      return;
+    }
+
+    observer.disconnect();
+    observing = false;
+  }
+
+  function resumeObserver() {
+    if (!initialized || !observer || observing || runtimeState.state.observerMuteDepth > 0) {
+      return;
+    }
 
     observer.observe(document.body, {
       childList: true,
@@ -35,6 +62,7 @@ function createLifecycle({
       attributes: true,
       attributeFilter: ["class", "aria-hidden"]
     });
+    observing = true;
   }
 
   function handleDocumentClick(event) {
@@ -49,6 +77,10 @@ function createLifecycle({
 
     const button = target.closest(`.${constants.BUTTON_CLASS}`);
     if (!(button instanceof globalThis.HTMLElement)) {
+      return;
+    }
+
+    if (threadDom.isManagedTranslateButton?.(button)) {
       return;
     }
 
@@ -199,11 +231,24 @@ function createLifecycle({
       return false;
     }
 
-    if (node.classList.contains(constants.BUTTON_CLASS) || node.closest?.(`.${constants.BUTTON_CLASS}`)) {
+    const translateButton = getTranslateButtonNode(node);
+    if (translateButton && !threadDom.isManagedTranslateButton?.(translateButton)) {
       return false;
     }
 
     return isInternalNode(node);
+  }
+
+  function getTranslateButtonNode(node) {
+    if (!(node instanceof globalThis.HTMLElement)) {
+      return null;
+    }
+
+    if (node.classList.contains(constants.BUTTON_CLASS)) {
+      return node;
+    }
+
+    return node.closest?.(`.${constants.BUTTON_CLASS}`) || null;
   }
 
   function isInternalNode(node) {

@@ -4,6 +4,7 @@ const {
   createError,
   normalizeError
 } = require("../core/errors.js");
+const { createNoopDiagnostics } = require("../diagnostics/diagnostics.js");
 
 const EDGE_FALLBACK_HEADERS = Object.freeze({
   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
@@ -12,7 +13,7 @@ const EDGE_FALLBACK_HEADERS = Object.freeze({
   "sec-ch-ua-platform": "\"Windows\""
 });
 
-function createEdgeAuth({ xhr, now = Date.now }) {
+function createEdgeAuth({ xhr, now = Date.now, diagnostics = createNoopDiagnostics() }) {
   let cache = null;
   let inflight = null;
 
@@ -67,9 +68,21 @@ function createEdgeAuth({ xhr, now = Date.now }) {
               Accept: "*/*"
             }
           });
+          diagnostics.record("edge-auth.request.start", {
+            attempt: 1,
+            timeoutMs: 8000,
+            usedFallbackHeaders: false
+          });
           activeAbort = () => request.abort?.();
           let response = await request;
           let token = String(response?.responseText || "").trim();
+          diagnostics.record("edge-auth.request.result", {
+            attempt: 1,
+            usedFallbackHeaders: false,
+            status: response?.status || 0,
+            responseTextLength: token.length,
+            isJwtLike: isJwtLike(token)
+          });
 
           if (!isJwtLike(token)) {
             request = xhr.request({
@@ -82,12 +95,28 @@ function createEdgeAuth({ xhr, now = Date.now }) {
                 ...EDGE_FALLBACK_HEADERS
               }
             });
+            diagnostics.record("edge-auth.request.start", {
+              attempt: 2,
+              timeoutMs: 8000,
+              usedFallbackHeaders: true
+            });
             activeAbort = () => request.abort?.();
             response = await request;
             token = String(response?.responseText || "").trim();
+            diagnostics.record("edge-auth.request.result", {
+              attempt: 2,
+              usedFallbackHeaders: true,
+              status: response?.status || 0,
+              responseTextLength: token.length,
+              isJwtLike: isJwtLike(token)
+            });
           }
 
           if (!isJwtLike(token)) {
+            diagnostics.record("edge-auth.token.rejected", {
+              reason: "token-not-jwt-like",
+              tokenLength: token.length
+            });
             throw createError(ERROR_CODES.EDGE_AUTH_FAILED, "Edge auth token is invalid.");
           }
 
@@ -95,10 +124,17 @@ function createEdgeAuth({ xhr, now = Date.now }) {
             token,
             expiresAt: getExpiry(token)
           };
+          diagnostics.record("edge-auth.token.accepted", {
+            tokenLength: token.length,
+            expiresAt: cache.expiresAt
+          });
 
           return token;
         })()
           .catch((error) => {
+          diagnostics.recordError("edge-auth.request.error", error, {
+            requestStage: "edge-auth"
+          });
           throw normalizeError(
             ERROR_CODES.EDGE_AUTH_FAILED,
             "Edge auth request failed.",

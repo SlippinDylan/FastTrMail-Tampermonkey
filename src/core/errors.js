@@ -1,6 +1,7 @@
 const ERROR_CODES = Object.freeze({
   EDGE_AUTH_FAILED: "edge_auth_failed",
   EDGE_TRANSLATE_FAILED: "edge_translate_failed",
+  GOOGLE_TRANSLATE_FAILED: "google_translate_failed",
   UNSUPPORTED_TARGET_LANGUAGE: "unsupported_target_language",
   TRANSLATION_CANCELLED: "translation_cancelled"
 });

@@ -1,6 +1,9 @@
+const { createNoopDiagnostics } = require("../diagnostics/diagnostics.js");
+
 function createApp({
   defaults,
   document,
+  diagnostics = createNoopDiagnostics(),
   i18n,
   policies,
   renderer,
@@ -13,14 +16,17 @@ function createApp({
   translateService,
   window = globalThis.window
 }) {
-  let targetLanguageId = defaults.targetLanguage;
+  let currentSettings = {
+    targetLanguage: defaults.targetLanguage,
+    preferredProvider: defaults.preferredProvider
+  };
   let settingsLoadPromise = null;
 
-  async function ensureTargetLanguageId() {
+  async function ensureSettings() {
     if (!settingsLoadPromise) {
-      settingsLoadPromise = settingsStore.getTargetLanguage()
+      settingsLoadPromise = readSettingsSnapshot()
         .then((value) => {
-          targetLanguageId = value;
+          currentSettings = value;
           return value;
         })
         .finally(() => {
@@ -31,14 +37,19 @@ function createApp({
     return settingsLoadPromise;
   }
 
-  async function persistTargetLanguageId(nextValue) {
-    targetLanguageId = await settingsStore.setTargetLanguage(nextValue);
+  async function ensureTargetLanguageId() {
+    const settings = await ensureSettings();
+    return settings.targetLanguage;
+  }
+
+  async function persistSettings(nextSettings) {
+    currentSettings = await writeSettingsSnapshot(nextSettings);
     refreshActiveThreads();
-    return targetLanguageId;
+    return currentSettings;
   }
 
   function getLanguageDefinition() {
-    return translateService.getLanguageDefinition(targetLanguageId);
+    return translateService.getLanguageDefinition(currentSettings.targetLanguage);
   }
 
   function injectButtons(root = document) {
@@ -46,10 +57,10 @@ function createApp({
   }
 
   async function openSettings() {
-    const currentValue = await ensureTargetLanguageId();
+    const resolvedSettings = await ensureSettings();
     settingsModal.open({
-      currentValue,
-      onSave: persistTargetLanguageId
+      currentSettings: resolvedSettings,
+      onSave: persistSettings
     });
   }
 
@@ -78,11 +89,20 @@ function createApp({
   async function onTranslateClick(event) {
     const button = event.currentTarget;
     if (!(button instanceof globalThis.HTMLElement)) {
+      diagnostics.record("ui.translate-click.invalid-target", {
+        targetType: typeof button
+      });
       return;
     }
+    diagnostics.record("ui.translate-click.received", {
+      buttonClassName: button.className || ""
+    });
 
     const threadRoot = threadDom.findThreadRoot(button);
     if (!threadRoot) {
+      diagnostics.record("ui.translate-click.thread-missing", {
+        buttonClassName: button.className || ""
+      });
       return;
     }
 
@@ -90,12 +110,18 @@ function createApp({
     const shouldRestoreOriginal = threadState?.active === true || renderer.hasThreadRenderArtifacts(threadRoot);
 
     if (shouldRestoreOriginal) {
+      diagnostics.record("ui.translate-click.restore", {
+        threadKey: threadState?.key || ""
+      });
       restoreThread(threadRoot);
       return;
     }
 
-    await ensureTargetLanguageId();
+    await ensureSettings();
     const nextThreadState = threadDom.ensureThreadState(threadRoot);
+    diagnostics.record("ui.translate-click.activate", {
+      threadKey: nextThreadState.key
+    });
     runtimeState.activateThreadState(nextThreadState);
     threadDom.syncThreadButtons(threadRoot, true);
     scheduleThreadRefresh(threadRoot, { immediate: true });
@@ -148,12 +174,21 @@ function createApp({
 
     threadState.processing = true;
     const runToken = runtimeState.beginThreadRun(threadState);
+    diagnostics.record("thread.refresh.start", {
+      threadKey: threadState.key,
+      runId: runToken.runId
+    });
 
     try {
       threadDom.syncThreadButtons(threadRoot, true);
 
       const descriptors = threadDom.collectMessageDescriptors(threadRoot);
       threadDom.reconcileMessageStates(threadState, descriptors);
+      diagnostics.record("thread.refresh.collected", {
+        threadKey: threadState.key,
+        runId: runToken.runId,
+        messageCount: descriptors.length
+      });
 
       if (!runtimeState.isRunCurrent(threadState, runToken)) {
         return;
@@ -200,7 +235,11 @@ function createApp({
     renderer.renderTitleTranslation(threadRoot, titleElement, i18n.t("content.loading"), "loading");
 
     const translationRequestId = `title:${threadState.key}:${runToken.runId}:${requestId}`;
-    const request = translateService.translateSegments([titleText], getLanguageDefinition());
+    const request = translateService.translateSegments(
+      [titleText],
+      getLanguageDefinition(),
+      { preferredProvider: currentSettings.preferredProvider }
+    );
     requestRegistry.register(translationRequestId, request);
     runtimeState.trackThreadRequest(threadState, translationRequestId);
 
@@ -322,8 +361,14 @@ function createApp({
     const requestId = `message:${threadState.key}:${messageState.instanceId}:${requestSerial}`;
     const request = translateService.translateSegments(
       segments.map((segment) => segment.text),
-      getLanguageDefinition()
+      getLanguageDefinition(),
+      { preferredProvider: currentSettings.preferredProvider }
     );
+    diagnostics.record("thread.message.translate.start", {
+      messageKey: messageState.key,
+      segmentCount: segments.length,
+      requestId
+    });
     requestRegistry.register(requestId, request);
     runtimeState.trackThreadRequest(threadState, requestId);
 
@@ -338,7 +383,14 @@ function createApp({
       messageState.status = "translated";
       messageState.error = "";
       renderer.clearMessageStatus(descriptor);
-      renderer.renderTranslatedSegments(segments, response.translatedSegments);
+      const renderResult = renderer.renderTranslatedSegments(segments, response.translatedSegments);
+      if (!renderResult?.ok) {
+        diagnostics.record("thread.message.render.failed", {
+          messageKey: messageState.key,
+          phase: "fresh-translation",
+          failedSegments: renderResult?.failedSegments || []
+        });
+      }
     } catch (error) {
       if (!runtimeState.isRunCurrent(threadState, runToken) || messageState.requestSerial !== requestSerial) {
         return;
@@ -347,6 +399,10 @@ function createApp({
       const message = resolveErrorMessage(error, i18n.t("content.translationFailed"));
       messageState.status = "error";
       messageState.error = message;
+      diagnostics.recordError("thread.message.translate.error", error, {
+        messageKey: messageState.key,
+        requestId
+      });
       renderer.renderSegmentError(segments, message);
     } finally {
       requestRegistry.release(requestId);
@@ -388,6 +444,38 @@ function createApp({
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+  }
+
+  async function readSettingsSnapshot() {
+    if (typeof settingsStore.getSettings === "function") {
+      return settingsStore.getSettings();
+    }
+
+    const [targetLanguage, preferredProvider] = await Promise.all([
+      typeof settingsStore.getTargetLanguage === "function"
+        ? settingsStore.getTargetLanguage()
+        : defaults.targetLanguage,
+      typeof settingsStore.getPreferredProvider === "function"
+        ? settingsStore.getPreferredProvider()
+        : defaults.preferredProvider
+    ]);
+
+    return { targetLanguage, preferredProvider };
+  }
+
+  async function writeSettingsSnapshot(nextSettings) {
+    if (typeof settingsStore.setSettings === "function") {
+      return settingsStore.setSettings(nextSettings);
+    }
+
+    const targetLanguage = typeof settingsStore.setTargetLanguage === "function"
+      ? await settingsStore.setTargetLanguage(nextSettings?.targetLanguage)
+      : defaults.targetLanguage;
+    const preferredProvider = typeof settingsStore.setPreferredProvider === "function"
+      ? await settingsStore.setPreferredProvider(nextSettings?.preferredProvider)
+      : defaults.preferredProvider;
+
+    return { targetLanguage, preferredProvider };
   }
   function resolveErrorMessage(error, fallbackMessage) {
     if (typeof error?.message === "string" && error.message.trim()) {

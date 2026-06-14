@@ -18,6 +18,8 @@ test("userscript build emits reproducible install artifacts sourced from package
   assert.ok(output.startsWith("// ==UserScript==\n"));
   assert.match(output, /@match\s+https:\/\/app\.fastmail\.com\/\*/);
   assert.match(output, new RegExp(`@version\\s+${packageJson.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(output, new RegExp(`@author\\s+${packageJson.author.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(output, /@icon\s+data:image\/png;base64,/);
   assert.match(output, /@grant\s+GM_xmlhttpRequest/);
   assert.match(output, /@grant\s+GM_getValue/);
   assert.match(output, /@grant\s+GM_setValue/);

@@ -182,6 +182,42 @@ test("edge auth normalizes non-2xx status failures into stable auth errors", asy
   });
 });
 
+test("edge auth records diagnostics for retrying an invalid token response", async () => {
+  const events = [];
+  let requestCount = 0;
+  const token = createJwt(1_000);
+  const auth = createEdgeAuth({
+    xhr: {
+      request() {
+        requestCount += 1;
+        return Promise.resolve({
+          status: 200,
+          responseText: requestCount === 1 ? "not-a-jwt" : token
+        });
+      }
+    },
+    now: () => 1_000,
+    diagnostics: {
+      record(event, payload) {
+        events.push({ event, payload });
+      },
+      recordError() {}
+    }
+  });
+
+  await auth.getToken();
+
+  assert.deepEqual(events.map((entry) => entry.event), [
+    "edge-auth.request.start",
+    "edge-auth.request.result",
+    "edge-auth.request.start",
+    "edge-auth.request.result",
+    "edge-auth.token.accepted"
+  ]);
+  assert.equal(events[1].payload.isJwtLike, false);
+  assert.equal(events[4].payload.expiresAt, 1_000_000);
+});
+
 test("xhr wrapper rejects non-2xx responses and exposes abort", async () => {
   let requestDetails = null;
   let aborted = false;

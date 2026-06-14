@@ -294,6 +294,11 @@ function createThreadDom({
     toolbarButtonClickHandlers.delete(button);
   }
 
+  function isManagedTranslateButton(button) {
+    return button instanceof globalThis.HTMLButtonElement
+      && toolbarButtonClickHandlers.has(button);
+  }
+
   function isPrimaryMouseActivation(event) {
     if (!event) {
       return false;
@@ -758,6 +763,7 @@ function createThreadDom({
     isMessageBodyDeferred,
     syncThreadButtons,
     updateButtonState,
+    isManagedTranslateButton,
     pruneDetachedThreadStates,
     clearThreadDomState
   };

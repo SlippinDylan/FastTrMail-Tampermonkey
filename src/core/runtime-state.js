@@ -13,6 +13,7 @@ function createRuntimeState({ getLocationKey }) {
     threadStates: new WeakMap(),
     activeThreadStates: new Set(),
     observerMuteDepth: 0,
+    observerControl: null,
     documentRefreshScheduled: false,
     observedThreadRoots: new Set(),
     observedThreadFlushTimer: 0,
@@ -42,12 +43,37 @@ function createRuntimeState({ getLocationKey }) {
   }
 
   function withObserverMuted(task) {
+    const shouldSuspendObserver = state.observerMuteDepth === 0;
     state.observerMuteDepth += 1;
+
+    if (shouldSuspendObserver) {
+      state.observerControl?.suspend?.();
+    }
+
     try {
       return task();
     } finally {
       state.observerMuteDepth -= 1;
+
+      if (state.observerMuteDepth === 0) {
+        state.observerControl?.resume?.();
+      }
     }
+  }
+
+  function setObserverControl(observerControl) {
+    state.observerControl = observerControl || null;
+
+    if (!state.observerControl) {
+      return;
+    }
+
+    if (state.observerMuteDepth > 0) {
+      state.observerControl.suspend?.();
+      return;
+    }
+
+    state.observerControl.resume?.();
   }
 
   function createThreadState() {
@@ -191,6 +217,7 @@ function createRuntimeState({ getLocationKey }) {
     nextMessageInstanceId,
     nextThreadStateKey,
     withObserverMuted,
+    setObserverControl,
     createTitleState,
     createThreadState,
     createMessageState,
