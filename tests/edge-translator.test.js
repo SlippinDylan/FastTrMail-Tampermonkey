@@ -226,3 +226,37 @@ test("translate service preserves translator abortability while remaining a narr
   translationPromise.abort();
   assert.equal(abortCount, 1);
 });
+
+test("edge translator records diagnostics for request lifecycle and parsed response shape", async () => {
+  const events = [];
+  const translator = createEdgeTranslator({
+    edgeAuth: { getToken: async () => "a.b.c" },
+    xhr: {
+      request: async () => ({
+        status: 200,
+        responseText: JSON.stringify([
+          { translations: [{ text: "第一段" }] }
+        ])
+      })
+    },
+    diagnostics: {
+      record(event, payload) {
+        events.push({ event, payload });
+      },
+      recordError() {}
+    }
+  });
+
+  await translator.translateSegments(
+    ["one"],
+    { id: "zh-CN", microsoft: "zh-Hans", label: "简体中文" }
+  );
+
+  assert.deepEqual(events.map((entry) => entry.event), [
+    "edge-translate.request.start",
+    "edge-translate.response.received",
+    "edge-translate.response.parsed"
+  ]);
+  assert.equal(events[0].payload.segmentCount, 1);
+  assert.equal(events[2].payload.translatedSegmentCount, 1);
+});

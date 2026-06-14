@@ -2,6 +2,7 @@ function createSettingsModal({
   constants,
   i18n,
   languages,
+  providers,
   runtimeState,
   document = globalThis.document
 }) {
@@ -19,7 +20,7 @@ function createSettingsModal({
     });
   }
 
-  function open({ currentValue, onSave }) {
+  function open({ currentSettings, onSave }) {
     close();
 
     overlay = document.createElement("div");
@@ -29,6 +30,8 @@ function createSettingsModal({
         <h2>${i18n.t("settings.title")}</h2>
         <label for="fmt-target-language">${i18n.t("settings.targetLanguage")}</label>
         <select id="fmt-target-language"></select>
+        <label for="fmt-preferred-provider">${i18n.t("settings.preferredProvider")}</label>
+        <select id="fmt-preferred-provider"></select>
         <footer>
           <button type="button" data-variant="secondary">${i18n.t("settings.cancel")}</button>
           <button type="button" data-variant="primary">${i18n.t("settings.save")}</button>
@@ -37,6 +40,7 @@ function createSettingsModal({
     `;
 
     const select = overlay.querySelector("select");
+    const providerSelect = overlay.querySelector("#fmt-preferred-provider");
     const cancelButton = overlay.querySelector('button[data-variant="secondary"]');
     const saveButton = overlay.querySelector('button[data-variant="primary"]');
 
@@ -44,8 +48,16 @@ function createSettingsModal({
       const option = document.createElement("option");
       option.value = language.id;
       option.textContent = language.label;
-      option.selected = language.id === currentValue;
+      option.selected = language.id === currentSettings?.targetLanguage;
       select.appendChild(option);
+    }
+
+    for (const provider of providers) {
+      const option = document.createElement("option");
+      option.value = provider.id;
+      option.textContent = provider.label;
+      option.selected = provider.id === currentSettings?.preferredProvider;
+      providerSelect.appendChild(option);
     }
 
     overlay.addEventListener("click", (event) => {
@@ -55,7 +67,10 @@ function createSettingsModal({
     });
     cancelButton.addEventListener("click", () => close());
     saveButton.addEventListener("click", async () => {
-      await onSave(select.value);
+      await onSave({
+        targetLanguage: select.value,
+        preferredProvider: providerSelect.value
+      });
       close();
     });
 

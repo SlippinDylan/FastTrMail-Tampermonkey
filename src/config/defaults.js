@@ -1,6 +1,7 @@
 module.exports = {
   DEFAULT_SETTINGS: Object.freeze({
-    targetLanguage: "zh-CN"
+    targetLanguage: "zh-CN",
+    preferredProvider: "edge-web"
   }),
   DOM_CONSTANTS: Object.freeze({
     BUTTON_CLASS: "fmt-translate-button",

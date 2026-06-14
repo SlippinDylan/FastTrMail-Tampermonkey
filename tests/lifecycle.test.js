@@ -79,3 +79,205 @@ test("lifecycle ignores toolbar attribute mutations when deciding active thread 
     cleanup();
   }
 });
+
+test("lifecycle ignores document click fallback for managed translate buttons", async () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar">
+            <button class="fmt-translate-button"><span class="label">翻译</span></button>
+          </div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Subject</h1></div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const button = document.querySelector(".fmt-translate-button");
+    const onTranslateClickCalls = [];
+
+    const app = {
+      injectButtons() {},
+      onTranslateClick(payload) {
+        onTranslateClickCalls.push(payload);
+      },
+      resetDocumentTranslationState() {},
+      scheduleThreadRefresh() {}
+    };
+
+    const threadDom = {
+      isManagedTranslateButton(currentButton) {
+        return currentButton === button;
+      },
+      findThreadRoot() {
+        return document.querySelector(".v-Thread");
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState() {
+        return null;
+      }
+    };
+
+    const lifecycle = createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    });
+
+    lifecycle.initialize();
+    button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
+
+    assert.equal(onTranslateClickCalls.length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("lifecycle ignores child-list mutations caused by managed translate buttons", async () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar">
+            <button class="fmt-translate-button"><span class="label">翻译</span></button>
+          </div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Subject</h1></div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const button = document.querySelector(".fmt-translate-button");
+    const toolbar = document.querySelector(".v-Toolbar");
+    const refreshCalls = [];
+
+    const app = {
+      injectButtons() {},
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      scheduleThreadRefresh(root, options) {
+        refreshCalls.push({ root, options });
+      }
+    };
+
+    const threadDom = {
+      isManagedTranslateButton(currentButton) {
+        return currentButton === button;
+      },
+      findThreadRoot() {
+        return document.querySelector(".v-Thread");
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState(root) {
+        return root === document.querySelector(".v-Thread") ? { active: true } : null;
+      }
+    };
+
+    const lifecycle = createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    });
+
+    lifecycle.initialize();
+    const spacer = document.createElement("span");
+    toolbar.appendChild(spacer);
+    button.remove();
+    toolbar.appendChild(button);
+    await waitForTick();
+    await waitForTick();
+
+    assert.equal(refreshCalls.length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("lifecycle suppresses async observer feedback for DOM writes wrapped in withObserverMuted", async () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar"></div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Subject</h1></div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const threadRoot = document.querySelector(".v-Thread");
+    const refreshCalls = [];
+
+    const app = {
+      injectButtons() {},
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      scheduleThreadRefresh(root, options) {
+        refreshCalls.push({ root, options });
+      }
+    };
+
+    const threadDom = {
+      findThreadRoot() {
+        return threadRoot;
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState(root) {
+        return root === threadRoot ? { active: true } : null;
+      }
+    };
+
+    const lifecycle = createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    });
+
+    lifecycle.initialize();
+    runtimeState.withObserverMuted(() => {
+      const node = document.createElement("div");
+      node.textContent = "internal mutation";
+      threadRoot.appendChild(node);
+    });
+    await waitForTick();
+    await waitForTick();
+
+    assert.equal(refreshCalls.length, 0);
+  } finally {
+    cleanup();
+  }
+});

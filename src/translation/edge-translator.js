@@ -4,8 +4,9 @@ const {
   createError,
   normalizeError
 } = require("../core/errors.js");
+const { createNoopDiagnostics } = require("../diagnostics/diagnostics.js");
 
-function createEdgeTranslator({ edgeAuth, xhr }) {
+function createEdgeTranslator({ edgeAuth, xhr, diagnostics = createNoopDiagnostics() }) {
   function getTranslatedText(item) {
     const text = item?.translations?.[0]?.text;
 
@@ -21,6 +22,10 @@ function createEdgeTranslator({ edgeAuth, xhr }) {
       let activeAbort = () => {};
       let wasAborted = false;
       const operation = (async () => {
+        diagnostics.record("edge-translate.request.start", {
+          segmentCount: segments.length,
+          targetLanguage: language.id
+        });
         const tokenRequest = edgeAuth.getToken();
         activeAbort = () => tokenRequest.abort?.();
         const token = await tokenRequest;
@@ -47,6 +52,10 @@ function createEdgeTranslator({ edgeAuth, xhr }) {
         }
 
         const response = await translateRequest;
+        diagnostics.record("edge-translate.response.received", {
+          status: response?.status || 0,
+          responseTextLength: String(response?.responseText || "").length
+        });
 
         let payload = null;
 
@@ -59,6 +68,9 @@ function createEdgeTranslator({ edgeAuth, xhr }) {
         const translatedSegments = Array.isArray(payload)
           ? payload.map((item) => getTranslatedText(item))
           : [];
+        diagnostics.record("edge-translate.response.parsed", {
+          translatedSegmentCount: translatedSegments.length
+        });
 
         if (translatedSegments.length !== segments.length) {
           throw createError(
@@ -75,6 +87,10 @@ function createEdgeTranslator({ edgeAuth, xhr }) {
           translatedSegments
         };
       })().catch((error) => {
+        diagnostics.recordError("edge-translate.request.error", error, {
+          requestStage: "edge-translate",
+          segmentCount: segments.length
+        });
         throw normalizeError(
           ERROR_CODES.EDGE_TRANSLATE_FAILED,
           "Edge translate request failed.",
