@@ -1,5 +1,9 @@
 const MAX_ENTRY_COUNT = 200;
 const MAX_STRING_LENGTH = 160;
+const CONSOLE_SUPPRESSED_EVENTS = new Set([
+  "thread.refresh.start",
+  "thread.refresh.collected"
+]);
 
 function createNoopDiagnostics() {
   return {
@@ -84,8 +88,10 @@ function createDiagnostics({
     };
     sequence += 1;
     pushEntry(entry);
-    console?.info?.(`[FastTrMail][diagnostics][${event}]`, entry);
-      return entry;
+    if (!CONSOLE_SUPPRESSED_EVENTS.has(event)) {
+      console?.info?.(`[FastTrMail][diagnostics][${event}]`, entry);
+    }
+    return entry;
   }
 
   function recordError(event, error, payload = {}) {

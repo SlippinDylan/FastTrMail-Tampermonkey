@@ -10,6 +10,7 @@ function createLifecycle({
   let observer = null;
   let initialized = false;
   let observing = false;
+  let translationSelectionGestureActive = false;
 
   function initialize() {
     if (initialized) {
@@ -28,6 +29,10 @@ function createLifecycle({
         return;
       }
 
+      if (isTranslationSelectionActive()) {
+        return;
+      }
+
       const affectedThreadRoots = collectAffectedThreadRoots(mutations);
       if (affectedThreadRoots.size > 0) {
         scheduleObservedThreadRefresh(affectedThreadRoots);
@@ -39,6 +44,10 @@ function createLifecycle({
     });
     app.injectButtons(document);
     document.addEventListener("click", handleDocumentClick, true);
+    document.addEventListener("mousedown", handleDocumentMouseDown, true);
+    document.addEventListener("mouseup", handleDocumentMouseUp, true);
+    document.addEventListener("selectionchange", handleDocumentSelectionChange, true);
+    window.addEventListener?.("blur", clearTranslationSelectionGesture, true);
     resumeObserver();
   }
 
@@ -89,6 +98,28 @@ function createLifecycle({
     void app.onTranslateClick({
       currentTarget: button
     });
+  }
+
+  function handleDocumentMouseDown(event) {
+    translationSelectionGestureActive = isManagedTranslationNode(event?.target);
+  }
+
+  function handleDocumentMouseUp() {
+    window.setTimeout(clearTranslationSelectionGestureIfInactive, 0);
+  }
+
+  function handleDocumentSelectionChange() {
+    clearTranslationSelectionGestureIfInactive();
+  }
+
+  function clearTranslationSelectionGesture() {
+    translationSelectionGestureActive = false;
+  }
+
+  function clearTranslationSelectionGestureIfInactive() {
+    if (!isSelectionInsideManagedTranslation()) {
+      clearTranslationSelectionGesture();
+    }
   }
 
   function scheduleDocumentRefresh() {
@@ -316,6 +347,43 @@ function createLifecycle({
       node.closest?.(`.${constants.MESSAGE_STATUS_CLASS}`) !== null ||
       node.closest?.(`.${constants.MODAL_OVERLAY_CLASS}`) !== null
     );
+  }
+
+  function isTranslationSelectionActive() {
+    return translationSelectionGestureActive || isSelectionInsideManagedTranslation();
+  }
+
+  function isSelectionInsideManagedTranslation() {
+    const selection = typeof document.getSelection === "function"
+      ? document.getSelection()
+      : null;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      return false;
+    }
+
+    for (let index = 0; index < selection.rangeCount; index += 1) {
+      const range = selection.getRangeAt(index);
+      if (isManagedTranslationNode(range.commonAncestorContainer)) {
+        return true;
+      }
+    }
+
+    return isManagedTranslationNode(selection.anchorNode) || isManagedTranslationNode(selection.focusNode);
+  }
+
+  function isManagedTranslationNode(node) {
+    if (node instanceof globalThis.HTMLElement) {
+      return Boolean(
+        node.closest(`.${constants.INLINE_TRANSLATION_CLASS}`) ||
+        node.closest(`.${constants.TITLE_TRANSLATION_CLASS}`)
+      );
+    }
+
+    if (node instanceof globalThis.Node) {
+      return isManagedTranslationNode(node.parentElement);
+    }
+
+    return false;
   }
 
   function shouldReactToAttributeMutation(target) {

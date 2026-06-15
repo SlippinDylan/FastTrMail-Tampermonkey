@@ -307,9 +307,18 @@ function createTranslationRenderer({
       return false;
     }
 
+    const normalizedState = String(state);
+    if (node.dataset.state === normalizedState && contentNode.textContent === normalizedContent) {
+      return true;
+    }
+
     return runtimeState.withObserverMuted(() => {
-      node.dataset.state = state;
-      contentNode.textContent = normalizedContent;
+      if (node.dataset.state !== normalizedState) {
+        node.dataset.state = normalizedState;
+      }
+      if (contentNode.textContent !== normalizedContent) {
+        contentNode.textContent = normalizedContent;
+      }
       return true;
     });
   }
@@ -325,9 +334,18 @@ function createTranslationRenderer({
       return false;
     }
 
+    const normalizedState = String(state);
+    if (node.dataset.state === normalizedState && contentNode.textContent === normalizedContent) {
+      return true;
+    }
+
     return runtimeState.withObserverMuted(() => {
-      node.dataset.state = state;
-      contentNode.textContent = normalizedContent;
+      if (node.dataset.state !== normalizedState) {
+        node.dataset.state = normalizedState;
+      }
+      if (contentNode.textContent !== normalizedContent) {
+        contentNode.textContent = normalizedContent;
+      }
       return true;
     });
   }
