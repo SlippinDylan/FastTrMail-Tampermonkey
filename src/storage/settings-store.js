@@ -5,6 +5,10 @@ function assertConfig(condition, message) {
 }
 
 function createSettingsStore({ tmApi, defaults, languages, providers }) {
+  const SETTINGS_KEY = "settings";
+  const TARGET_LANGUAGE_KEY = "targetLanguage";
+  const PREFERRED_PROVIDER_KEY = "preferredProvider";
+
   assertConfig(tmApi && typeof tmApi.getValue === "function", "tmApi.getValue must be a function");
   assertConfig(tmApi && typeof tmApi.setValue === "function", "tmApi.setValue must be a function");
   assertConfig(defaults && typeof defaults.targetLanguage === "string", "defaults.targetLanguage must be a string");
@@ -25,57 +29,100 @@ function createSettingsStore({ tmApi, defaults, languages, providers }) {
     return supportedProviders.has(value) ? value : defaults.preferredProvider;
   }
 
-  async function getNormalizedValue(key, fallback, normalize) {
-    const value = await tmApi.getValue(key, fallback);
-    const normalizedValue = normalize(value);
+  function normalizeSettingsSnapshot(value) {
+    return {
+      targetLanguage: normalizeTargetLanguage(value?.targetLanguage),
+      preferredProvider: normalizePreferredProvider(value?.preferredProvider)
+    };
+  }
 
-    if (normalizedValue !== value) {
-      await tmApi.setValue(key, normalizedValue);
-    }
+  function isSettingsSnapshot(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
 
+  async function writeSettingsSnapshot(value) {
+    const normalizedValue = normalizeSettingsSnapshot(value);
+    await tmApi.setValue(SETTINGS_KEY, normalizedValue);
     return normalizedValue;
   }
 
-  async function setNormalizedValue(key, value, normalize) {
-    const normalizedValue = normalize(value);
-    await tmApi.setValue(key, normalizedValue);
-    return normalizedValue;
+  async function readLegacySettingsSnapshot() {
+    const [targetLanguage, preferredProvider] = await Promise.all([
+      tmApi.getValue(TARGET_LANGUAGE_KEY, defaults.targetLanguage),
+      tmApi.getValue(PREFERRED_PROVIDER_KEY, defaults.preferredProvider)
+    ]);
+
+    return normalizeSettingsSnapshot({ targetLanguage, preferredProvider });
+  }
+
+  async function resolveSettingsSnapshot({ repair }) {
+    const storedSnapshot = await tmApi.getValue(SETTINGS_KEY, undefined);
+    if (isSettingsSnapshot(storedSnapshot)) {
+      const normalizedSnapshot = normalizeSettingsSnapshot(storedSnapshot);
+      const needsRepair = (
+        normalizedSnapshot.targetLanguage !== storedSnapshot.targetLanguage ||
+        normalizedSnapshot.preferredProvider !== storedSnapshot.preferredProvider
+      );
+
+      if (repair && needsRepair) {
+        await writeSettingsSnapshot(normalizedSnapshot);
+      }
+
+      return normalizedSnapshot;
+    }
+
+    if (typeof storedSnapshot !== "undefined") {
+      const defaultSnapshot = {
+        targetLanguage: defaults.targetLanguage,
+        preferredProvider: defaults.preferredProvider
+      };
+
+      if (repair) {
+        await writeSettingsSnapshot(defaultSnapshot);
+      }
+
+      return defaultSnapshot;
+    }
+
+    const legacySnapshot = await readLegacySettingsSnapshot();
+
+    if (repair) {
+      await writeSettingsSnapshot(legacySnapshot);
+    }
+
+    return legacySnapshot;
+  }
+
+  async function readSettingsSnapshot() {
+    return resolveSettingsSnapshot({ repair: true });
   }
 
   return {
     async getTargetLanguage() {
-      return getNormalizedValue("targetLanguage", defaults.targetLanguage, normalizeTargetLanguage);
+      return (await readSettingsSnapshot()).targetLanguage;
     },
     async setTargetLanguage(value) {
-      return setNormalizedValue("targetLanguage", value, normalizeTargetLanguage);
+      const settings = await resolveSettingsSnapshot({ repair: false });
+      return (await writeSettingsSnapshot({
+        ...settings,
+        targetLanguage: value
+      })).targetLanguage;
     },
     async getPreferredProvider() {
-      return getNormalizedValue("preferredProvider", defaults.preferredProvider, normalizePreferredProvider);
+      return (await readSettingsSnapshot()).preferredProvider;
     },
     async setPreferredProvider(value) {
-      return setNormalizedValue("preferredProvider", value, normalizePreferredProvider);
+      const settings = await resolveSettingsSnapshot({ repair: false });
+      return (await writeSettingsSnapshot({
+        ...settings,
+        preferredProvider: value
+      })).preferredProvider;
     },
     async getSettings() {
-      const [targetLanguage, preferredProvider] = await Promise.all([
-        getNormalizedValue("targetLanguage", defaults.targetLanguage, normalizeTargetLanguage),
-        getNormalizedValue("preferredProvider", defaults.preferredProvider, normalizePreferredProvider)
-      ]);
-
-      return { targetLanguage, preferredProvider };
+      return readSettingsSnapshot();
     },
     async setSettings(nextSettings) {
-      const targetLanguage = await setNormalizedValue(
-        "targetLanguage",
-        nextSettings?.targetLanguage,
-        normalizeTargetLanguage
-      );
-      const preferredProvider = await setNormalizedValue(
-        "preferredProvider",
-        nextSettings?.preferredProvider,
-        normalizePreferredProvider
-      );
-
-      return { targetLanguage, preferredProvider };
+      return writeSettingsSnapshot(nextSettings);
     }
   };
 }

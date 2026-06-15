@@ -44,6 +44,8 @@ function createApp({
 
   async function persistSettings(nextSettings) {
     currentSettings = await writeSettingsSnapshot(nextSettings);
+    runtimeState.advanceSettingsRevision();
+    invalidateActiveThreadTranslations();
     refreshActiveThreads();
     return currentSettings;
   }
@@ -72,6 +74,38 @@ function createApp({
     const requestIds = Array.from(threadState.pendingRequestIds);
     threadState.pendingRequestIds.clear();
     requestRegistry.cancelMany(requestIds);
+  }
+
+  function invalidateThreadTranslationState(threadState) {
+    if (!threadState) {
+      return;
+    }
+
+    const nextSettingsRevision = runtimeState.state.settingsRevision;
+    threadState.title.translatedText = "";
+    threadState.title.status = "idle";
+    threadState.title.error = "";
+    threadState.title.requestId += 1;
+    threadState.title.settingsRevision = nextSettingsRevision;
+
+    for (const messageState of threadState.messages.values()) {
+      messageState.segmentSignature = "";
+      messageState.translatedSegments = null;
+      messageState.status = "idle";
+      messageState.error = "";
+      messageState.requestSerial += 1;
+      messageState.settingsRevision = nextSettingsRevision;
+    }
+  }
+
+  function invalidateActiveThreadTranslations() {
+    for (const threadState of Array.from(runtimeState.state.activeThreadStates)) {
+      cancelPendingThreadRequests(threadState);
+      invalidateThreadTranslationState(threadState);
+      if (threadState.root instanceof globalThis.HTMLElement) {
+        renderer.clearThreadRenderArtifacts(threadState.root);
+      }
+    }
   }
 
   function restoreThread(threadRoot) {
@@ -174,6 +208,9 @@ function createApp({
 
     threadState.processing = true;
     const runToken = runtimeState.beginThreadRun(threadState);
+    const textCache = typeof segmenter.createTextExtractionCache === "function"
+      ? segmenter.createTextExtractionCache()
+      : null;
     diagnostics.record("thread.refresh.start", {
       threadKey: threadState.key,
       runId: runToken.runId
@@ -182,7 +219,7 @@ function createApp({
     try {
       threadDom.syncThreadButtons(threadRoot, true);
 
-      const descriptors = threadDom.collectMessageDescriptors(threadRoot);
+      const descriptors = threadDom.collectMessageDescriptors(threadRoot, { textCache });
       threadDom.reconcileMessageStates(threadState, descriptors);
       diagnostics.record("thread.refresh.collected", {
         threadKey: threadState.key,
@@ -195,7 +232,7 @@ function createApp({
       }
 
       await processThreadTitle(threadRoot, threadState, runToken);
-      await processMessageDescriptors(threadRoot, threadState, descriptors, runToken);
+      await processMessageDescriptors(threadRoot, threadState, descriptors, runToken, { textCache });
     } finally {
       threadState.processing = false;
 
@@ -210,6 +247,7 @@ function createApp({
 
   async function processThreadTitle(threadRoot, threadState, runToken) {
     const titleState = threadState.title;
+    const settingsRevision = runtimeState.state.settingsRevision;
     const titleElement = threadDom.findTitleElement(threadRoot);
     const titleText = normalizeTranslationText(titleElement?.textContent || "");
 
@@ -219,7 +257,12 @@ function createApp({
       return;
     }
 
-    if (titleState.sourceText === titleText && titleState.status === "done" && titleState.translatedText) {
+    if (
+      titleState.sourceText === titleText &&
+      titleState.status === "done" &&
+      titleState.translatedText &&
+      titleState.settingsRevision === settingsRevision
+    ) {
       if (runtimeState.isRunCurrent(threadState, runToken)) {
         renderer.renderTitleTranslation(threadRoot, titleElement, titleState.translatedText, "done");
       }
@@ -232,6 +275,7 @@ function createApp({
     titleState.status = "translating";
     titleState.error = "";
     titleState.requestId = requestId;
+    titleState.settingsRevision = settingsRevision;
     renderer.renderTitleTranslation(threadRoot, titleElement, i18n.t("content.loading"), "loading");
 
     const translationRequestId = `title:${threadState.key}:${runToken.runId}:${requestId}`;
@@ -253,7 +297,7 @@ function createApp({
         throw new Error(i18n.t("content.titleTranslationEmpty"));
       }
 
-      if (!isTitleRequestCurrent(threadState, requestId, titleText)) {
+      if (!isTitleRequestCurrent(threadState, requestId, titleText, settingsRevision)) {
         return;
       }
 
@@ -270,7 +314,7 @@ function createApp({
         renderer.renderTitleTranslation(threadRoot, liveTitleElement, translatedTitle, "done");
       }
     } catch (error) {
-      if (!isTitleRequestCurrent(threadState, requestId, titleText)) {
+      if (!isTitleRequestCurrent(threadState, requestId, titleText, settingsRevision)) {
         return;
       }
 
@@ -293,14 +337,14 @@ function createApp({
     }
   }
 
-  async function processMessageDescriptors(threadRoot, threadState, descriptors, runToken) {
+  async function processMessageDescriptors(threadRoot, threadState, descriptors, runToken, { textCache } = {}) {
     for (const descriptor of descriptors) {
       if (!runtimeState.isRunCurrent(threadState, runToken)) {
         return;
       }
 
       const messageState = descriptor.state;
-      const liveElements = threadDom.findLiveMessageElements(threadRoot, descriptor);
+      const liveElements = threadDom.findLiveMessageElements(threadRoot, descriptor, { textCache });
       descriptor.body = liveElements.body;
       descriptor.contentRoot = liveElements.contentRoot || descriptor.body;
       renderer.clearMessageStatus(descriptor);
@@ -317,7 +361,7 @@ function createApp({
         continue;
       }
 
-      const segments = segmenter.collectTranslatableSegments(descriptor.contentRoot || descriptor.body);
+      const segments = segmenter.collectTranslatableSegments(descriptor.contentRoot || descriptor.body, { textCache });
       if (segments.length === 0) {
         messageState.status = "no-segments";
         messageState.error = i18n.t("content.noSegments");
@@ -332,7 +376,8 @@ function createApp({
       if (
         Array.isArray(messageState.translatedSegments) &&
         messageState.translatedSegments.length === segments.length &&
-        messageState.segmentSignature === segmentSignature
+        messageState.segmentSignature === segmentSignature &&
+        messageState.settingsRevision === runtimeState.state.settingsRevision
       ) {
         const renderResult = renderer.renderTranslatedSegments(segments, messageState.translatedSegments);
         messageState.status = renderResult.ok ? "translated" : "render-pending";
@@ -347,6 +392,7 @@ function createApp({
   async function translateMessageDescriptor(threadState, descriptor, runToken) {
     const messageState = descriptor.state;
     const segments = descriptor.segments || [];
+    const settingsRevision = runtimeState.state.settingsRevision;
 
     if (segments.length === 0 || !runtimeState.isRunCurrent(threadState, runToken)) {
       return;
@@ -354,6 +400,7 @@ function createApp({
 
     messageState.status = "translating";
     messageState.error = "";
+    messageState.settingsRevision = settingsRevision;
     renderer.renderLoadingTranslations(segments);
 
     messageState.requestSerial += 1;
@@ -374,7 +421,11 @@ function createApp({
 
     try {
       const response = await request;
-      if (!runtimeState.isRunCurrent(threadState, runToken) || messageState.requestSerial !== requestSerial) {
+      if (
+        !runtimeState.isRunCurrent(threadState, runToken) ||
+        messageState.requestSerial !== requestSerial ||
+        messageState.settingsRevision !== settingsRevision
+      ) {
         return;
       }
 
@@ -392,7 +443,11 @@ function createApp({
         });
       }
     } catch (error) {
-      if (!runtimeState.isRunCurrent(threadState, runToken) || messageState.requestSerial !== requestSerial) {
+      if (
+        !runtimeState.isRunCurrent(threadState, runToken) ||
+        messageState.requestSerial !== requestSerial ||
+        messageState.settingsRevision !== settingsRevision
+      ) {
         return;
       }
 
@@ -432,8 +487,12 @@ function createApp({
     }
   }
 
-  function isTitleRequestCurrent(threadState, requestId, titleText) {
-    return threadState.title.requestId === requestId && threadState.title.sourceText === titleText;
+  function isTitleRequestCurrent(threadState, requestId, titleText, settingsRevision) {
+    return (
+      threadState.title.requestId === requestId &&
+      threadState.title.sourceText === titleText &&
+      threadState.title.settingsRevision === settingsRevision
+    );
   }
 
   function normalizeTranslationText(text) {

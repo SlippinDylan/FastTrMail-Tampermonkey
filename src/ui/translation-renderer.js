@@ -6,6 +6,10 @@ function createTranslationRenderer({
   document = globalThis.document
 }) {
   function removeInlineTranslations(bodyElement) {
+    if (!(bodyElement instanceof globalThis.HTMLElement)) {
+      return;
+    }
+
     runtimeState.withObserverMuted(() => {
       bodyElement
         .querySelectorAll(`.${constants.INLINE_TRANSLATION_CLASS}, .${constants.SEGMENT_ANCHOR_CLASS}, .${constants.TRANSLATION_WRAPPER_CLASS}`)

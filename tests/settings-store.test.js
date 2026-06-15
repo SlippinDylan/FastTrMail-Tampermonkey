@@ -13,7 +13,13 @@ test("settings store repairs unsupported persisted targetLanguage values back in
     tmApi: {
       async getValue(key, fallback) {
         calls.push({ key, fallback });
-        return "unsupported";
+        if (key === "settings") {
+          return {
+            targetLanguage: "unsupported",
+            preferredProvider: "edge-web"
+          };
+        }
+        return fallback;
       },
       async setValue(key, value) {
         writes.push({ key, value });
@@ -27,8 +33,14 @@ test("settings store repairs unsupported persisted targetLanguage values back in
   const value = await store.getTargetLanguage();
 
   assert.equal(value, "zh-CN");
-  assert.deepEqual(calls, [{ key: "targetLanguage", fallback: "zh-CN" }]);
-  assert.deepEqual(writes, [{ key: "targetLanguage", value: "zh-CN" }]);
+  assert.deepEqual(calls, [{ key: "settings", fallback: undefined }]);
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "zh-CN",
+      preferredProvider: "edge-web"
+    }
+  }]);
 });
 
 test("settings store repairs unsupported persisted preferredProvider values back into storage", async () => {
@@ -38,7 +50,13 @@ test("settings store repairs unsupported persisted preferredProvider values back
     tmApi: {
       async getValue(key, fallback) {
         calls.push({ key, fallback });
-        return key === "preferredProvider" ? "unsupported" : fallback;
+        if (key === "settings") {
+          return {
+            targetLanguage: "en",
+            preferredProvider: "unsupported"
+          };
+        }
+        return fallback;
       },
       async setValue(key, value) {
         writes.push({ key, value });
@@ -52,15 +70,27 @@ test("settings store repairs unsupported persisted preferredProvider values back
   const value = await store.getPreferredProvider();
 
   assert.equal(value, "edge-web");
-  assert.deepEqual(calls, [{ key: "preferredProvider", fallback: "edge-web" }]);
-  assert.deepEqual(writes, [{ key: "preferredProvider", value: "edge-web" }]);
+  assert.deepEqual(calls, [{ key: "settings", fallback: undefined }]);
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "en",
+      preferredProvider: "edge-web"
+    }
+  }]);
 });
 
 test("settings store persists supported targetLanguage values only and returns the normalized value", async () => {
   const writes = [];
   const store = createSettingsStore({
     tmApi: {
-      async getValue(_key, fallback) {
+      async getValue(key, fallback) {
+        if (key === "settings") {
+          return {
+            targetLanguage: "zh-CN",
+            preferredProvider: "edge-web"
+          };
+        }
         return fallback;
       },
       async setValue(key, value) {
@@ -75,14 +105,26 @@ test("settings store persists supported targetLanguage values only and returns t
   const value = await store.setTargetLanguage("en");
 
   assert.equal(value, "en");
-  assert.deepEqual(writes, [{ key: "targetLanguage", value: "en" }]);
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "en",
+      preferredProvider: "edge-web"
+    }
+  }]);
 });
 
 test("settings store normalizes unsupported targetLanguage values on write", async () => {
   const writes = [];
   const store = createSettingsStore({
     tmApi: {
-      async getValue(_key, fallback) {
+      async getValue(key, fallback) {
+        if (key === "settings") {
+          return {
+            targetLanguage: "zh-CN",
+            preferredProvider: "edge-web"
+          };
+        }
         return fallback;
       },
       async setValue(key, value) {
@@ -97,10 +139,50 @@ test("settings store normalizes unsupported targetLanguage values on write", asy
   const value = await store.setTargetLanguage("unsupported");
 
   assert.equal(value, "zh-CN");
-  assert.deepEqual(writes, [{ key: "targetLanguage", value: "zh-CN" }]);
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "zh-CN",
+      preferredProvider: "edge-web"
+    }
+  }]);
 });
 
 test("settings store persists supported preferredProvider values only and returns the normalized value", async () => {
+  const writes = [];
+  const store = createSettingsStore({
+    tmApi: {
+      async getValue(key, fallback) {
+        if (key === "settings") {
+          return {
+            targetLanguage: "zh-CN",
+            preferredProvider: "edge-web"
+          };
+        }
+        return fallback;
+      },
+      async setValue(key, value) {
+        writes.push({ key, value });
+      }
+    },
+    defaults: { targetLanguage: "zh-CN", preferredProvider: "edge-web" },
+    languages: [{ id: "zh-CN" }, { id: "en" }],
+    providers: [{ id: "edge-web" }, { id: "google-web" }]
+  });
+
+  const value = await store.setPreferredProvider("google-web");
+
+  assert.equal(value, "google-web");
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "zh-CN",
+      preferredProvider: "google-web"
+    }
+  }]);
+});
+
+test("settings store persists a canonical snapshot in one write when saving multiple fields", async () => {
   const writes = [];
   const store = createSettingsStore({
     tmApi: {
@@ -116,10 +198,103 @@ test("settings store persists supported preferredProvider values only and return
     providers: [{ id: "edge-web" }, { id: "google-web" }]
   });
 
-  const value = await store.setPreferredProvider("google-web");
+  const value = await store.setSettings({
+    targetLanguage: "en",
+    preferredProvider: "google-web"
+  });
 
-  assert.equal(value, "google-web");
-  assert.deepEqual(writes, [{ key: "preferredProvider", value: "google-web" }]);
+  assert.deepEqual(value, {
+    targetLanguage: "en",
+    preferredProvider: "google-web"
+  });
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "en",
+      preferredProvider: "google-web"
+    }
+  }]);
+});
+
+test("settings store rebuilds the canonical snapshot from legacy keys when the snapshot is missing", async () => {
+  const writes = [];
+  const calls = [];
+  const store = createSettingsStore({
+    tmApi: {
+      async getValue(key, fallback) {
+        calls.push({ key, fallback });
+        if (key === "settings") {
+          return undefined;
+        }
+        if (key === "targetLanguage") {
+          return "en";
+        }
+        if (key === "preferredProvider") {
+          return "google-web";
+        }
+        return fallback;
+      },
+      async setValue(key, value) {
+        writes.push({ key, value });
+      }
+    },
+    defaults: { targetLanguage: "zh-CN", preferredProvider: "edge-web" },
+    languages: [{ id: "zh-CN" }, { id: "en" }],
+    providers: [{ id: "edge-web" }, { id: "google-web" }]
+  });
+
+  const settings = await store.getSettings();
+
+  assert.deepEqual(settings, {
+    targetLanguage: "en",
+    preferredProvider: "google-web"
+  });
+  assert.deepEqual(calls, [
+    { key: "settings", fallback: undefined },
+    { key: "targetLanguage", fallback: "zh-CN" },
+    { key: "preferredProvider", fallback: "edge-web" }
+  ]);
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "en",
+      preferredProvider: "google-web"
+    }
+  }]);
+});
+
+test("settings store ignores malformed snapshot payloads and repairs them from normalized values", async () => {
+  const writes = [];
+  const store = createSettingsStore({
+    tmApi: {
+      async getValue(key, fallback) {
+        if (key === "settings") {
+          return "broken";
+        }
+        return fallback;
+      },
+      async setValue(key, value) {
+        writes.push({ key, value });
+      }
+    },
+    defaults: { targetLanguage: "zh-CN", preferredProvider: "edge-web" },
+    languages: [{ id: "zh-CN" }, { id: "en" }],
+    providers: [{ id: "edge-web" }, { id: "google-web" }]
+  });
+
+  const settings = await store.getSettings();
+
+  assert.deepEqual(settings, {
+    targetLanguage: "zh-CN",
+    preferredProvider: "edge-web"
+  });
+  assert.deepEqual(writes, [{
+    key: "settings",
+    value: {
+      targetLanguage: "zh-CN",
+      preferredProvider: "edge-web"
+    }
+  }]);
 });
 
 test("settings store returns normalized multi-field settings snapshot", async () => {
@@ -127,7 +302,13 @@ test("settings store returns normalized multi-field settings snapshot", async ()
   const store = createSettingsStore({
     tmApi: {
       async getValue(key, fallback) {
-        return key === "targetLanguage" ? "ja" : fallback;
+        if (key === "settings") {
+          return {
+            targetLanguage: "ja",
+            preferredProvider: "edge-web"
+          };
+        }
+        return fallback;
       },
       async setValue(key, value) {
         writes.push({ key, value });

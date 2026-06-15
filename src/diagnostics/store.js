@@ -12,19 +12,25 @@ function createDiagnosticsStore({ tmApi }) {
   assertConfig(tmApi && typeof tmApi.getValue === "function", "tmApi.getValue must be a function");
   assertConfig(tmApi && typeof tmApi.setValue === "function", "tmApi.setValue must be a function");
 
+  async function getEnabled() {
+    return normalizeEnabled(await tmApi.getValue("diagnosticsEnabled", false));
+  }
+
+  async function setEnabled(value) {
+    const normalizedValue = Boolean(value);
+    await tmApi.setValue("diagnosticsEnabled", normalizedValue);
+    return normalizedValue;
+  }
+
+  async function toggleEnabled() {
+    const nextValue = !(await getEnabled());
+    return setEnabled(nextValue);
+  }
+
   return {
-    async getEnabled() {
-      return normalizeEnabled(await tmApi.getValue("diagnosticsEnabled", false));
-    },
-    async setEnabled(value) {
-      const normalizedValue = Boolean(value);
-      await tmApi.setValue("diagnosticsEnabled", normalizedValue);
-      return normalizedValue;
-    },
-    async toggleEnabled() {
-      const nextValue = !(await this.getEnabled());
-      return this.setEnabled(nextValue);
-    }
+    getEnabled,
+    setEnabled,
+    toggleEnabled
   };
 }
 

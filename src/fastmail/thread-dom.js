@@ -63,8 +63,41 @@ function createThreadDom({
       return null;
     }
 
+    if (threadRoot instanceof globalThis.HTMLElement) {
+      const localToolbar = findToolbarNearThread(pageRoot, threadRoot);
+      if (localToolbar) {
+        return localToolbar;
+      }
+    }
+
     const toolbar = pageRoot.querySelector(".v-Toolbar");
     return toolbar instanceof globalThis.HTMLElement ? toolbar : null;
+  }
+
+  function findToolbarNearThread(pageRoot, threadRoot) {
+    const threadToolbar = threadRoot.querySelector(".v-Toolbar");
+    if (threadToolbar instanceof globalThis.HTMLElement) {
+      return threadToolbar;
+    }
+
+    for (let node = threadRoot; node && node !== pageRoot; node = node.parentElement) {
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (!(sibling instanceof globalThis.HTMLElement)) {
+          continue;
+        }
+
+        if (sibling.matches(".v-Toolbar")) {
+          return sibling;
+        }
+
+        const nestedToolbar = sibling.querySelector(".v-Toolbar");
+        if (nestedToolbar instanceof globalThis.HTMLElement) {
+          return nestedToolbar;
+        }
+      }
+    }
+
+    return null;
   }
 
   function findPrimaryThreadRoot(pageRoot) {
@@ -443,7 +476,7 @@ function createThreadDom({
     return instanceId;
   }
 
-  function buildMessageIdentity(entry, bodyElement) {
+  function buildMessageIdentity(entry, bodyElement, { textCache } = {}) {
     const dataMessageId = getMessageDataId(entry);
     const detailsFingerprint = getMessageDetailsFingerprint(entry.messageNode);
     const fromText = normalizeIdentityValue(
@@ -463,7 +496,7 @@ function createThreadDom({
         ? entry.messageNode
         : null;
     const bodyExcerpt = !dataMessageId && !detailsFingerprint && bodyTextSource
-      ? normalizeIdentityValue(segmenter.extractBodyText(bodyTextSource).slice(0, 200), 200)
+      ? normalizeIdentityValue(segmenter.extractBodyText(bodyTextSource, { textCache }).slice(0, 200), 200)
       : "";
 
     return buildIdentity("message", [
@@ -476,14 +509,14 @@ function createThreadDom({
     ], entry.card?.id || entry.messageNode?.id || "message");
   }
 
-  function collectMessageDescriptors(threadRoot) {
+  function collectMessageDescriptors(threadRoot, { textCache } = {}) {
     return getThreadMessageEntries(threadRoot).map((entry) => {
       const instanceId = getOrAssignMessageInstanceId(entry);
-      const body = findBodyElement(entry.messageNode);
+      const body = findBodyElement(entry.messageNode, { textCache });
       const contentRoot = body instanceof globalThis.HTMLElement
-        ? findPrimaryContentRoot(body) || body
+        ? findPrimaryContentRoot(body, { textCache }) || body
         : null;
-      const identity = buildMessageIdentity(entry, body);
+      const identity = buildMessageIdentity(entry, body, { textCache });
 
       return {
         instanceId,
@@ -545,12 +578,12 @@ function createThreadDom({
     }) || null;
   }
 
-  function findLiveMessageElements(threadRoot, descriptor) {
-    const directBody = findBodyElement(descriptor.messageNode);
+  function findLiveMessageElements(threadRoot, descriptor, { textCache } = {}) {
+    const directBody = findBodyElement(descriptor.messageNode, { textCache });
     if (directBody instanceof globalThis.HTMLElement && directBody.isConnected) {
       return {
         body: directBody,
-        contentRoot: findPrimaryContentRoot(directBody) || directBody
+        contentRoot: findPrimaryContentRoot(directBody, { textCache }) || directBody
       };
     }
 
@@ -562,17 +595,17 @@ function createThreadDom({
       };
     }
 
-    const liveBody = findBodyElement(liveEntry.messageNode);
+    const liveBody = findBodyElement(liveEntry.messageNode, { textCache });
 
     return {
       body: liveBody instanceof globalThis.HTMLElement ? liveBody : null,
       contentRoot: liveBody instanceof globalThis.HTMLElement
-        ? findPrimaryContentRoot(liveBody) || liveBody
+        ? findPrimaryContentRoot(liveBody, { textCache }) || liveBody
         : null
     };
   }
 
-  function findBodyElement(messageNode) {
+  function findBodyElement(messageNode, { textCache } = {}) {
     if (!(messageNode instanceof globalThis.HTMLElement)) {
       return null;
     }
@@ -589,7 +622,7 @@ function createThreadDom({
         ? messageNode
         : messageNode.querySelector(selector);
 
-      if (found instanceof globalThis.HTMLElement && policies.isExplicitBodyText(segmenter.extractBodyText(found))) {
+      if (found instanceof globalThis.HTMLElement && policies.isExplicitBodyText(segmenter.extractBodyText(found, { textCache }))) {
         return found;
       }
     }
@@ -606,7 +639,7 @@ function createThreadDom({
         continue;
       }
 
-      const text = segmenter.extractBodyText(candidate);
+      const text = segmenter.extractBodyText(candidate, { textCache });
       if (!policies.isCandidateBodyText(text)) {
         continue;
       }
@@ -644,7 +677,7 @@ function createThreadDom({
     return Boolean(card.querySelector(".v-MessageCard-loadingBody"));
   }
 
-  function findPrimaryContentRoot(container) {
+  function findPrimaryContentRoot(container, { textCache } = {}) {
     if (!(container instanceof globalThis.HTMLElement)) {
       return null;
     }
@@ -663,7 +696,7 @@ function createThreadDom({
           continue;
         }
 
-        const text = segmenter.extractBodyText(candidate);
+        const text = segmenter.extractBodyText(candidate, { textCache });
         if (text.length < 20) {
           continue;
         }

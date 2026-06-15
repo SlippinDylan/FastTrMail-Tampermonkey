@@ -218,6 +218,47 @@ test("edge auth records diagnostics for retrying an invalid token response", asy
   assert.equal(events[4].payload.expiresAt, 1_000_000);
 });
 
+test("edge auth derives fallback headers from the live browser environment when available", async () => {
+  const requests = [];
+  const token = createJwt(1_000);
+  const auth = createEdgeAuth({
+    xhr: {
+      request(details) {
+        requests.push(details);
+        return Promise.resolve({
+          status: 200,
+          responseText: requests.length === 1 ? "not-a-jwt" : token
+        });
+      }
+    },
+    now: () => 1_000,
+    browserEnv: {
+      navigator: {
+        userAgent: "Browser UA",
+        userAgentData: {
+          brands: [
+            { brand: "Chromium", version: "200" },
+            { brand: "Microsoft Edge", version: "200" }
+          ],
+          mobile: true,
+          platform: "macOS"
+        }
+      }
+    }
+  });
+
+  await auth.getToken();
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].headers["user-agent"], "Browser UA");
+  assert.equal(
+    requests[1].headers["sec-ch-ua"],
+    "\"Chromium\";v=\"200\", \"Microsoft Edge\";v=\"200\""
+  );
+  assert.equal(requests[1].headers["sec-ch-ua-mobile"], "?1");
+  assert.equal(requests[1].headers["sec-ch-ua-platform"], "\"macOS\"");
+});
+
 test("xhr wrapper rejects non-2xx responses and exposes abort", async () => {
   let requestDetails = null;
   let aborted = false;

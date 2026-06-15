@@ -7,16 +7,16 @@
 ## 功能范围
 
 - 仅匹配 `https://app.fastmail.com/*`
-- 仅保留 `edge-web` 翻译能力
+- 内置 `edge-web` 与 `google-web` 两种翻译能力，并按用户设置决定优先级与自动回退顺序
 - 保留主题和正文的“追加在原文下方”翻译模式
 - 保留再次点击按钮恢复原文的交互
 - 保留 Fastmail 邮件线程工具栏内的按钮位置
-- 仅保留一个设置项：`targetLanguage`
+- 设置项包括 `targetLanguage` 与 `preferredProvider`
 
 ## 设置入口
 
 - Tampermonkey 菜单命令：`FastTrMail 设置`
-- 页面内弹窗：选择目标语言并保存
+- 页面内弹窗：选择目标语言和优先翻译工具并保存
 
 ## 本地开发
 
@@ -41,7 +41,7 @@ npm run build
 ## 模块边界
 
 - `src/fastmail/`: Fastmail DOM 识别、线程与正文定位、正文分段
-- `src/translation/`: Edge 鉴权、翻译请求、取消控制
+- `src/translation/`: Edge 鉴权、Edge/Google 翻译请求、取消控制、provider 回退
 - `src/ui/`: 按钮、翻译渲染、设置弹窗、样式
 - `src/core/`: 运行时状态、页面生命周期、应用编排
 - `src/platform/`: Tampermonkey `GM_*` API 封装
