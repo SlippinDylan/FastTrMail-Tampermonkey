@@ -78,6 +78,23 @@ test("settings modal styles center footer actions", () => {
   );
 });
 
+test("translation styles keep rendered translations selectable", () => {
+  const css = createStyles(DOM_CONSTANTS);
+
+  assert.match(
+    css,
+    new RegExp(`\\.${DOM_CONSTANTS.TITLE_TRANSLATION_CLASS},\\s*\\n\\s*\\.${DOM_CONSTANTS.INLINE_TRANSLATION_CLASS},\\s*\\n\\s*\\.${DOM_CONSTANTS.TITLE_TRANSLATION_CLASS} \\.fmt-title-translation-content,\\s*\\n\\s*\\.${DOM_CONSTANTS.INLINE_TRANSLATION_CLASS} \\.fmt-inline-translation-content\\s*\\{[^}]*user-select:\\s*text;`, "m")
+  );
+  assert.match(
+    css,
+    new RegExp(`\\.${DOM_CONSTANTS.TITLE_TRANSLATION_CLASS},\\s*\\n\\s*\\.${DOM_CONSTANTS.INLINE_TRANSLATION_CLASS},\\s*\\n\\s*\\.${DOM_CONSTANTS.TITLE_TRANSLATION_CLASS} \\.fmt-title-translation-content,\\s*\\n\\s*\\.${DOM_CONSTANTS.INLINE_TRANSLATION_CLASS} \\.fmt-inline-translation-content\\s*\\{[^}]*-webkit-user-select:\\s*text;`, "m")
+  );
+  assert.match(
+    css,
+    new RegExp(`\\.${DOM_CONSTANTS.TITLE_TRANSLATION_CLASS},\\s*\\n\\s*\\.${DOM_CONSTANTS.INLINE_TRANSLATION_CLASS},\\s*\\n\\s*\\.${DOM_CONSTANTS.TITLE_TRANSLATION_CLASS} \\.fmt-title-translation-content,\\s*\\n\\s*\\.${DOM_CONSTANTS.INLINE_TRANSLATION_CLASS} \\.fmt-inline-translation-content\\s*\\{[^}]*cursor:\\s*text;`, "m")
+  );
+});
+
 test("settings modal resolves the target-language select by explicit id", () => {
   const { cleanup } = installDom();
   const selectors = [];

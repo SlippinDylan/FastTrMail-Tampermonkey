@@ -51,6 +51,52 @@ test("renderer appends translated text below the source element", () => {
   }
 });
 
+test("renderer leaves unchanged translation text nodes intact on repeated renders", () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Thread">
+          <div class="v-Message-body">
+            <p id="source">Hello world</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const segmenter = createSegmenter({
+      constants: DOM_CONSTANTS,
+      policies: textPolicies,
+      runtimeState
+    });
+    const renderer = createTranslationRenderer({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      runtimeState,
+      segmenter
+    });
+
+    const source = document.getElementById("source");
+    const segments = [{ id: "seg-1", element: source, sourceElement: source, text: "Hello world" }];
+
+    renderer.renderTranslatedSegments(segments, ["你好，世界"]);
+    const contentNode = document.querySelector(".fmt-inline-translation-content");
+    const firstTextNode = contentNode.firstChild;
+
+    renderer.renderTranslatedSegments(segments, ["你好，世界"]);
+
+    assert.equal(contentNode.textContent, "你好，世界");
+    assert.equal(contentNode.firstChild, firstTextNode);
+  } finally {
+    cleanup();
+  }
+});
+
 test("renderer clears thread artifacts for restore-original behavior", () => {
   const { cleanup } = installDom(`
     <!doctype html>

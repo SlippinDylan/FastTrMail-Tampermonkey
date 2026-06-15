@@ -61,6 +61,32 @@ test("diagnostics logger records explicit state changes when disabling", () => {
   assert.equal(diagnostics.isEnabled(), false);
 });
 
+test("diagnostics keeps high-frequency refresh events out of the console", () => {
+  const calls = [];
+  const diagnostics = createDiagnostics({
+    enabled: true,
+    now: () => 789,
+    console: {
+      info(...args) {
+        calls.push(args);
+      }
+    }
+  });
+
+  diagnostics.record("thread.refresh.start", { threadKey: "fmt-thread-0", runId: 1 });
+  diagnostics.record("thread.refresh.collected", { threadKey: "fmt-thread-0", runId: 1, messageCount: 1 });
+  diagnostics.record("edge-auth.request.start", { requestId: "auth-1" });
+
+  assert.deepEqual(
+    diagnostics.getEntries().map((entry) => entry.event),
+    ["thread.refresh.start", "thread.refresh.collected", "edge-auth.request.start"]
+  );
+  assert.deepEqual(
+    calls.map((call) => call[0]),
+    ["[FastTrMail][diagnostics][edge-auth.request.start]"]
+  );
+});
+
 test("diagnostics store normalizes persisted values and toggles them", async () => {
   const writes = [];
   let persistedValue = "true";

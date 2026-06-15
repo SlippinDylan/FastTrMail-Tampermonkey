@@ -16,6 +16,15 @@ function createStyles(constants) {
       word-break: break-word;
     }
 
+    .${constants.TITLE_TRANSLATION_CLASS},
+    .${constants.INLINE_TRANSLATION_CLASS},
+    .${constants.TITLE_TRANSLATION_CLASS} .fmt-title-translation-content,
+    .${constants.INLINE_TRANSLATION_CLASS} .fmt-inline-translation-content {
+      user-select: text;
+      -webkit-user-select: text;
+      cursor: text;
+    }
+
     .${constants.TITLE_TRANSLATION_CLASS}[data-state="done"],
     .${constants.INLINE_TRANSLATION_CLASS}[data-state="done"] {
       color: #467dde;
