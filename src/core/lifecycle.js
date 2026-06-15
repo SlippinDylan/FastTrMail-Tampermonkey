@@ -18,7 +18,7 @@ function createLifecycle({
 
     initialized = true;
 
-    observer = new MutationObserver((mutations) => {
+    observer = new MutationObserver((mutations) => safelyRunLifecycleWork("lifecycle.observer.unexpected-error", () => {
       if (runtimeState.state.observerMuteDepth > 0) {
         return;
       }
@@ -32,7 +32,7 @@ function createLifecycle({
       if (affectedThreadRoots.size > 0) {
         scheduleObservedThreadRefresh(affectedThreadRoots);
       }
-    });
+    }));
     runtimeState.setObserverControl({
       suspend: suspendObserver,
       resume: resumeObserver
@@ -61,7 +61,7 @@ function createLifecycle({
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ["class", "aria-hidden"]
+      attributeFilter: ["class", "aria-hidden", "hidden", "style", "inert"]
     });
     observing = true;
   }
@@ -100,13 +100,15 @@ function createLifecycle({
     window.setTimeout(() => {
       runtimeState.state.documentRefreshScheduled = false;
 
-      if (runtimeState.hasLocationChanged()) {
-        app.resetDocumentTranslationState();
-      }
+      safelyRunLifecycleWork("lifecycle.document-refresh.unexpected-error", () => {
+        if (runtimeState.hasLocationChanged()) {
+          app.resetDocumentTranslationState();
+        }
 
-      clearObservedThreadRefreshQueue();
-      app.injectButtons(document);
-      threadDom.pruneDetachedThreadStates();
+        clearObservedThreadRefreshQueue();
+        app.injectButtons(document);
+        disposeDetachedThreadStates();
+      });
     }, 0);
   }
 
@@ -125,26 +127,49 @@ function createLifecycle({
       const roots = Array.from(runtimeState.state.observedThreadRoots);
       clearObservedThreadRefreshQueue();
 
-      if (runtimeState.hasLocationChanged()) {
-        scheduleDocumentRefresh();
-        return;
-      }
-
-      threadDom.pruneDetachedThreadStates();
-
-      for (const threadRoot of roots) {
-        if (!(threadRoot instanceof globalThis.HTMLElement) || !threadRoot.isConnected) {
-          continue;
+      safelyRunLifecycleWork("lifecycle.thread-refresh.unexpected-error", () => {
+        if (runtimeState.hasLocationChanged()) {
+          scheduleDocumentRefresh();
+          return;
         }
 
-        app.injectButtons(threadRoot);
+        disposeDetachedThreadStates();
 
-        const state = threadDom.getExistingThreadState(threadRoot);
-        if (state?.active) {
-          app.scheduleThreadRefresh(threadRoot, { immediate: true });
+        for (const threadRoot of roots) {
+          if (!(threadRoot instanceof globalThis.HTMLElement) || !threadRoot.isConnected) {
+            continue;
+          }
+
+          app.injectButtons(threadRoot);
+
+          const state = threadDom.getExistingThreadState(threadRoot);
+          if (state?.active) {
+            app.scheduleThreadRefresh(threadRoot, { immediate: true });
+          }
         }
-      }
+      });
     }, 0);
+  }
+
+  function safelyRunLifecycleWork(event, task) {
+    try {
+      return task();
+    } catch (error) {
+      app.reportLifecycleError?.(event, error);
+      return undefined;
+    }
+  }
+
+  function disposeDetachedThreadStates() {
+    const detachedThreadRoots = typeof threadDom.collectDetachedActiveThreadRoots === "function"
+      ? threadDom.collectDetachedActiveThreadRoots()
+      : [];
+
+    for (const threadRoot of detachedThreadRoots) {
+      app.disposeThread?.(threadRoot);
+    }
+
+    threadDom.pruneDetachedThreadStates();
   }
 
   function clearObservedThreadRefreshQueue() {

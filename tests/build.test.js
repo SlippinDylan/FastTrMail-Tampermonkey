@@ -8,6 +8,7 @@ const tmRoot = path.resolve(__dirname, "..");
 const distPath = path.join(tmRoot, "dist", "fasttrmail.user.js");
 const versionedDistPath = path.join(tmRoot, "dist", `fasttrmail-tampermonkey-${require(path.join(tmRoot, "package.json")).version}.user.js`);
 const packageJson = require(path.join(tmRoot, "package.json"));
+const iconUrl = "https://raw.githubusercontent.com/SlippinDylan/FastTrMail-Tampermonkey/main/assets/app.png";
 
 test("userscript build emits reproducible install artifacts sourced from package metadata", () => {
   childProcess.execFileSync("node", ["scripts/build.js"], { cwd: tmRoot });
@@ -19,11 +20,15 @@ test("userscript build emits reproducible install artifacts sourced from package
   assert.match(output, /@match\s+https:\/\/app\.fastmail\.com\/\*/);
   assert.match(output, new RegExp(`@version\\s+${packageJson.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.match(output, new RegExp(`@author\\s+${packageJson.author.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-  assert.match(output, /@icon\s+data:image\/png;base64,/);
+  assert.match(output, /@license\s+MIT/);
+  assert.match(output, new RegExp(`@icon\\s+${iconUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.doesNotMatch(output, /@icon\s+data:image\/png;base64,/);
   assert.match(output, /@grant\s+GM_xmlhttpRequest/);
   assert.match(output, /@grant\s+GM_getValue/);
   assert.match(output, /@grant\s+GM_setValue/);
   assert.match(output, /@grant\s+GM_registerMenuCommand/);
+  assert.match(output, /@description\s+Translate Fastmail message views inline with built-in web translators\./);
+  assert.doesNotMatch(output, /@description\s+.*Microsoft Edge transport/);
   assert.match(output, /@connect\s+edge\.microsoft\.com/);
   assert.match(output, /@connect\s+api\.cognitive\.microsofttranslator\.com/);
   assert.match(output, /@connect\s+translate\.googleapis\.com/);

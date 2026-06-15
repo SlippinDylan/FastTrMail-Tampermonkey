@@ -354,3 +354,70 @@ test("thread dom and segment collection reuse a shared text extraction cache wit
     cleanup();
   }
 });
+
+test("thread dom keeps large message text extraction clone work linearly bounded", () => {
+  const paragraphCount = 120;
+  const paragraphs = Array.from(
+    { length: paragraphCount },
+    (_, index) => `<p>Newsletter paragraph ${index} with enough text to translate.</p>`
+  ).join("");
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-MessageCard app-contentCard"></div>
+              <div class="v-Message">
+                <div class="v-Message-body">
+                  <article class="u-article">${paragraphs}</article>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const segmenter = createSegmenter({
+      constants: DOM_CONSTANTS,
+      policies: textPolicies,
+      runtimeState
+    });
+    const threadDom = createThreadDom({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "en-US" } }),
+      pageLocator,
+      policies: textPolicies,
+      runtimeState,
+      segmenter,
+      toolbarButtonApi
+    });
+
+    const originalCloneNode = global.HTMLElement.prototype.cloneNode;
+    let cloneCount = 0;
+    global.HTMLElement.prototype.cloneNode = function patchedCloneNode(deep) {
+      cloneCount += 1;
+      return originalCloneNode.call(this, deep);
+    };
+
+    try {
+      const textCache = segmenter.createTextExtractionCache();
+      const descriptors = threadDom.collectMessageDescriptors(document.querySelector(".v-Thread"), { textCache });
+      const segments = segmenter.collectTranslatableSegments(descriptors[0].contentRoot, { textCache });
+
+      assert.equal(segments.length, paragraphCount);
+      assert.ok(cloneCount <= paragraphCount + 4, `expected clone count <= ${paragraphCount + 4}, got ${cloneCount}`);
+    } finally {
+      global.HTMLElement.prototype.cloneNode = originalCloneNode;
+    }
+  } finally {
+    cleanup();
+  }
+});

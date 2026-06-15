@@ -13,6 +13,342 @@ function waitForTick() {
   });
 }
 
+async function flushTicks(ticks = 3) {
+  for (let index = 0; index < ticks; index += 1) {
+    await waitForTick();
+  }
+}
+
+function createLifecycleDom() {
+  return installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar"></div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Subject</h1></div>
+              <div class="v-MessageCard app-contentCard"></div>
+              <div class="v-Message">
+                <div class="v-Message-body">
+                  <div class="message-body-text">Original body text</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+}
+
+test("observed-thread pruning disposes detached active threads before dropping state", async () => {
+  const { cleanup } = createLifecycleDom();
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const threadRoot = document.querySelector(".v-Thread");
+    const mutationTarget = document.querySelector(".message-body-text");
+    const callOrder = [];
+    const app = {
+      injectButtons() {},
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      scheduleThreadRefresh() {},
+      disposeThread(root) {
+        callOrder.push({ event: "dispose", root });
+      }
+    };
+    const threadDom = {
+      findThreadRoot() {
+        return threadRoot;
+      },
+      collectDetachedActiveThreadRoots() {
+        return [threadRoot];
+      },
+      pruneDetachedThreadStates() {
+        callOrder.push({ event: "prune" });
+      },
+      getExistingThreadState(root) {
+        return root === threadRoot ? { active: true } : null;
+      }
+    };
+
+    createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    }).initialize();
+
+    threadRoot.remove();
+    mutationTarget.textContent = "Updated body text";
+    await flushTicks();
+
+    assert.deepEqual(callOrder, [
+      { event: "dispose", root: threadRoot },
+      { event: "prune" }
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("observer callback contains unexpected DOM errors and later mutations still schedule work", async () => {
+  const { cleanup } = createLifecycleDom();
+  const originalClosest = global.HTMLElement.prototype.closest;
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const threadRoot = document.querySelector(".v-Thread");
+    const bodyText = document.querySelector(".message-body-text");
+    const boom = new Error("observer boom");
+    const lifecycleErrors = [];
+    const refreshCalls = [];
+    let shouldThrow = true;
+    const app = {
+      injectButtons() {},
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      reportLifecycleError(event, error) {
+        lifecycleErrors.push({ event, error });
+      },
+      scheduleThreadRefresh(root, options) {
+        refreshCalls.push({ root, options });
+      }
+    };
+    const threadDom = {
+      findThreadRoot() {
+        return threadRoot;
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState(root) {
+        return root === threadRoot ? { active: true } : null;
+      }
+    };
+
+    createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    }).initialize();
+
+    global.HTMLElement.prototype.closest = function patchedClosest(selector) {
+      if (selector === ".v-Thread" && shouldThrow) {
+        shouldThrow = false;
+        global.HTMLElement.prototype.closest = originalClosest;
+        throw boom;
+      }
+      return originalClosest.call(this, selector);
+    };
+
+    document.querySelector(".v-Page-content").appendChild(document.createElement("div"));
+    await flushTicks();
+
+    bodyText.textContent = "Updated body text";
+    await flushTicks();
+
+    assert.deepEqual(lifecycleErrors, [
+      { event: "lifecycle.observer.unexpected-error", error: boom }
+    ]);
+    assert.deepEqual(refreshCalls, [
+      { root: threadRoot, options: { immediate: true } }
+    ]);
+  } finally {
+    global.HTMLElement.prototype.closest = originalClosest;
+    cleanup();
+  }
+});
+
+test("document refresh timer contains unexpected errors and leaves later refreshes possible", async () => {
+  const { cleanup } = createLifecycleDom();
+
+  try {
+    let locationKey = "thread-a";
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => locationKey
+    });
+    const boom = new Error("document refresh boom");
+    const lifecycleErrors = [];
+    let injectCalls = 0;
+    const app = {
+      injectButtons() {
+        injectCalls += 1;
+        if (injectCalls === 2) {
+          throw boom;
+        }
+      },
+      onTranslateClick() {},
+      resetDocumentTranslationState() {
+        runtimeState.syncCurrentLocationKey();
+      },
+      reportLifecycleError(event, error) {
+        lifecycleErrors.push({ event, error });
+      },
+      scheduleThreadRefresh() {}
+    };
+    const threadDom = {
+      findThreadRoot() {
+        return document.querySelector(".v-Thread");
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState() {
+        return null;
+      }
+    };
+
+    createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    }).initialize();
+
+    locationKey = "thread-b";
+    document.body.appendChild(document.createElement("div"));
+    await flushTicks();
+
+    locationKey = "thread-c";
+    document.body.appendChild(document.createElement("section"));
+    await flushTicks();
+
+    assert.deepEqual(lifecycleErrors, [
+      { event: "lifecycle.document-refresh.unexpected-error", error: boom }
+    ]);
+    assert.equal(injectCalls, 3);
+  } finally {
+    cleanup();
+  }
+});
+
+test("thread flush timer contains unexpected errors and leaves later flushes possible", async () => {
+  const { cleanup } = createLifecycleDom();
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const threadRoot = document.querySelector(".v-Thread");
+    const bodyText = document.querySelector(".message-body-text");
+    const boom = new Error("thread flush boom");
+    const lifecycleErrors = [];
+    const refreshCalls = [];
+    let injectCalls = 0;
+    const app = {
+      injectButtons() {
+        injectCalls += 1;
+        if (injectCalls === 2) {
+          throw boom;
+        }
+      },
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      reportLifecycleError(event, error) {
+        lifecycleErrors.push({ event, error });
+      },
+      scheduleThreadRefresh(root, options) {
+        refreshCalls.push({ root, options });
+      }
+    };
+    const threadDom = {
+      findThreadRoot() {
+        return threadRoot;
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState(root) {
+        return root === threadRoot ? { active: true } : null;
+      }
+    };
+
+    createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    }).initialize();
+
+    bodyText.textContent = "First update";
+    await flushTicks();
+
+    bodyText.textContent = "Second update";
+    await flushTicks();
+
+    assert.deepEqual(lifecycleErrors, [
+      { event: "lifecycle.thread-refresh.unexpected-error", error: boom }
+    ]);
+    assert.deepEqual(refreshCalls, [
+      { root: threadRoot, options: { immediate: true } }
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("lifecycle refreshes the active thread on hidden style and inert visibility mutations", async () => {
+  for (const [attributeName, attributeValue] of [
+    ["hidden", ""],
+    ["style", "display: none;"],
+    ["inert", ""]
+  ]) {
+    const { cleanup } = createLifecycleDom();
+
+    try {
+      const runtimeState = createRuntimeState({
+        getLocationKey: () => pageLocator.getLocationKey(global.location)
+      });
+      const threadRoot = document.querySelector(".v-Thread");
+      const messageBody = document.querySelector(".v-Message-body");
+      const refreshCalls = [];
+      const app = {
+        injectButtons() {},
+        onTranslateClick() {},
+        resetDocumentTranslationState() {},
+        scheduleThreadRefresh(root, options) {
+          refreshCalls.push({ root, options });
+        }
+      };
+      const threadDom = {
+        findThreadRoot() {
+          return threadRoot;
+        },
+        pruneDetachedThreadStates() {},
+        getExistingThreadState(root) {
+          return root === threadRoot ? { active: true } : null;
+        }
+      };
+
+      createLifecycle({
+        app,
+        constants: DOM_CONSTANTS,
+        document: global.document,
+        runtimeState,
+        threadDom
+      }).initialize();
+
+      messageBody.setAttribute(attributeName, attributeValue);
+      await flushTicks();
+
+      assert.deepEqual(
+        refreshCalls,
+        [{ root: threadRoot, options: { immediate: true } }],
+        `${attributeName} mutation should schedule a refresh`
+      );
+    } finally {
+      cleanup();
+    }
+  }
+});
+
 test("lifecycle ignores toolbar attribute mutations when deciding active thread refreshes", async () => {
   const { cleanup } = installDom(`
     <!doctype html>

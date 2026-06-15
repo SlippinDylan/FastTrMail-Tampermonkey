@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const { createI18n } = require("../src/ui/i18n.js");
 const {
+  registerSettingsMenuCommand,
   registerDiagnosticsMenuCommand
 } = require("../src/ui/menu-command.js");
 const {
@@ -134,6 +135,81 @@ test("diagnostics menu command toggles persisted state and the live diagnostics 
 
   assert.equal(enabledState, true);
   assert.equal(setEnabledCalls, 1);
+});
+
+test("settings menu command contains open failures instead of leaking rejections", async () => {
+  let menuHandler = null;
+  const boom = new Error("open settings failed");
+  const recordedErrors = [];
+
+  registerSettingsMenuCommand({
+    tmApi: {
+      registerMenuCommand(label, handler) {
+        assert.equal(label, "FastTrMail 设置");
+        menuHandler = handler;
+        return 1;
+      }
+    },
+    i18n: createI18n({ navigator: { language: "zh-CN" } }),
+    diagnostics: {
+      recordError(event, error, payload) {
+        recordedErrors.push({ event, error, payload });
+      }
+    },
+    onClick() {
+      return Promise.reject(boom);
+    }
+  });
+
+  await assert.doesNotReject(() => menuHandler());
+  assert.deepEqual(recordedErrors, [
+    {
+      event: "ui.settings.menu.unexpected-error",
+      error: boom,
+      payload: {}
+    }
+  ]);
+});
+
+test("diagnostics menu command contains toggle failures instead of leaking rejections", async () => {
+  let menuHandler = null;
+  const boom = new Error("toggle failed");
+  const recordedErrors = [];
+  let setEnabledCalls = 0;
+
+  registerDiagnosticsMenuCommand({
+    tmApi: {
+      registerMenuCommand(label, handler) {
+        assert.equal(label, "FastTrMail 切换诊断日志");
+        menuHandler = handler;
+        return 1;
+      }
+    },
+    i18n: createI18n({ navigator: { language: "zh-CN" } }),
+    diagnosticsStore: {
+      async toggleEnabled() {
+        throw boom;
+      }
+    },
+    diagnostics: {
+      setEnabled() {
+        setEnabledCalls += 1;
+      },
+      recordError(event, error, payload) {
+        recordedErrors.push({ event, error, payload });
+      }
+    }
+  });
+
+  await assert.doesNotReject(() => menuHandler());
+  assert.equal(setEnabledCalls, 0);
+  assert.deepEqual(recordedErrors, [
+    {
+      event: "ui.diagnostics.menu.unexpected-error",
+      error: boom,
+      payload: {}
+    }
+  ]);
 });
 
 test("translation renderer ignores invalid bodies when removing inline translations", () => {

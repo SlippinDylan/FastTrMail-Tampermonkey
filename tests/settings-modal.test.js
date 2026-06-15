@@ -47,6 +47,7 @@ test("settings modal renders provider selection and saves the complete settings 
     assert.equal(selects[0].value, "zh-CN");
     assert.equal(selects[1].value, "edge-web");
     assert.match(document.body.textContent, /优先翻译工具/);
+    assert.match(document.body.textContent, /免 Key 翻译接口可能变更或失效/);
     assert.match(document.body.textContent, /Google Web（实验性 \/ 免费）/);
 
     selects[0].value = "en";
@@ -245,6 +246,129 @@ test("settings modal re-enables actions after save failure", async () => {
     assert.equal(saveButton.disabled, false);
     assert.equal(cancelButton.disabled, false);
     assert.equal(selects.every((select) => select.disabled === false), true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings modal closes on Escape when idle", () => {
+  const { cleanup } = installDom();
+
+  try {
+    const modal = createSettingsModal({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      languages: [{ id: "zh-CN", label: "简体中文" }],
+      providers: [{ id: "edge-web", label: "Microsoft Edge（免 Key）" }],
+      runtimeState: {
+        withObserverMuted(fn) {
+          return fn();
+        }
+      },
+      document: global.document
+    });
+
+    modal.open({
+      currentSettings: {
+        targetLanguage: "zh-CN",
+        preferredProvider: "edge-web"
+      },
+      onSave() {}
+    });
+
+    document.querySelector(`.${DOM_CONSTANTS.MODAL_OVERLAY_CLASS}`).dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    );
+
+    assert.equal(document.querySelector(`.${DOM_CONSTANTS.MODAL_OVERLAY_CLASS}`), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings modal traps focus within the dialog", () => {
+  const { cleanup } = installDom();
+
+  try {
+    const modal = createSettingsModal({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      languages: [{ id: "zh-CN", label: "简体中文" }],
+      providers: [{ id: "edge-web", label: "Microsoft Edge（免 Key）" }],
+      runtimeState: {
+        withObserverMuted(fn) {
+          return fn();
+        }
+      },
+      document: global.document
+    });
+
+    modal.open({
+      currentSettings: {
+        targetLanguage: "zh-CN",
+        preferredProvider: "edge-web"
+      },
+      onSave() {}
+    });
+
+    const focusable = Array.from(document.querySelectorAll("select, button"));
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    last.focus();
+    document.querySelector(`.${DOM_CONSTANTS.MODAL_OVERLAY_CLASS}`).dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true })
+    );
+    assert.equal(document.activeElement, first);
+
+    first.focus();
+    document.querySelector(`.${DOM_CONSTANTS.MODAL_OVERLAY_CLASS}`).dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true })
+    );
+    assert.equal(document.activeElement, last);
+  } finally {
+    cleanup();
+  }
+});
+
+test("settings modal restores focus to the invoking element on close", () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <button id="settings-invoker">Settings</button>
+      </body>
+    </html>
+  `);
+
+  try {
+    const invoker = document.getElementById("settings-invoker");
+    const modal = createSettingsModal({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      languages: [{ id: "zh-CN", label: "简体中文" }],
+      providers: [{ id: "edge-web", label: "Microsoft Edge（免 Key）" }],
+      runtimeState: {
+        withObserverMuted(fn) {
+          return fn();
+        }
+      },
+      document: global.document
+    });
+
+    invoker.focus();
+    modal.open({
+      currentSettings: {
+        targetLanguage: "zh-CN",
+        preferredProvider: "edge-web"
+      },
+      currentTarget: invoker,
+      onSave() {}
+    });
+
+    document.querySelector('button[data-variant="secondary"]').click();
+
+    assert.equal(document.activeElement, invoker);
   } finally {
     cleanup();
   }

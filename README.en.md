@@ -7,7 +7,8 @@ This is the standalone Tampermonkey repository for FastTrMail and runs only on F
 ## Scope
 
 - Matches `https://app.fastmail.com/*` only
-- Ships both `edge-web` and `google-web`, with user-selected priority and automatic fallback
+- Ships both `edge-web` and `google-web`; `edge-web` is the default, explicit `google-web` selection may fall back to Edge on Google failure, and Edge failures do not automatically fan out into Google requests
+- Both built-in providers depend on no-key web endpoints, so upstream behavior may change or stop working; production use should keep a fallback-provider expectation
 - Preserves the subject/body “append below original text” translation pattern
 - Preserves the second-click restore-original interaction
 - Preserves the existing Fastmail toolbar button position

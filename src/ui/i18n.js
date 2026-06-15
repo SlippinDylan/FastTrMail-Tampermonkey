@@ -17,6 +17,7 @@ const MESSAGES = Object.freeze({
     "settings.cancel": "取消",
     "settings.saved": "设置已保存。",
     "settings.saveFailed": "保存失败。",
+    "settings.providerNotice": "免 Key 翻译接口可能变更或失效；上线使用时建议保留备用 provider。",
     "providers.edge-web": "Microsoft Edge（免 Key）",
     "providers.google-web": "Google Web（实验性 / 免费）"
   }),
@@ -38,6 +39,7 @@ const MESSAGES = Object.freeze({
     "settings.cancel": "Cancel",
     "settings.saved": "Settings saved.",
     "settings.saveFailed": "Failed to save settings.",
+    "settings.providerNotice": "No-key translation endpoints may change or stop working; keep a fallback provider available for production use.",
     "providers.edge-web": "Microsoft Edge (No Key)",
     "providers.google-web": "Google Web (Experimental / Free)"
   })

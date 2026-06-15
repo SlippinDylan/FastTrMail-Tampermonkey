@@ -3,6 +3,8 @@ const ERROR_CODES = Object.freeze({
   EDGE_TRANSLATE_FAILED: "edge_translate_failed",
   GOOGLE_TRANSLATE_FAILED: "google_translate_failed",
   UNSUPPORTED_TARGET_LANGUAGE: "unsupported_target_language",
+  NO_TRANSLATOR_AVAILABLE: "no_translator_available",
+  TRANSLATOR_CONTRACT_VIOLATION: "translator_contract_violation",
   TRANSLATION_CANCELLED: "translation_cancelled"
 });
 

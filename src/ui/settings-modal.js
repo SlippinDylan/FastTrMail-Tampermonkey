@@ -7,6 +7,18 @@ function createSettingsModal({
   document = globalThis.document
 }) {
   let overlay = null;
+  let restoreFocusTarget = null;
+
+  function isElement(node) {
+    const HTMLElementCtor = document.defaultView?.HTMLElement || globalThis.HTMLElement;
+    return typeof HTMLElementCtor === "function" && node instanceof HTMLElementCtor;
+  }
+
+  function getFocusableElements(container) {
+    return Array.from(container.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter((node) => isElement(node) && !node.disabled);
+  }
 
   function close() {
     if (!overlay) {
@@ -14,16 +26,23 @@ function createSettingsModal({
     }
 
     const node = overlay;
+    const focusTarget = restoreFocusTarget;
     overlay = null;
+    restoreFocusTarget = null;
     runtimeState.withObserverMuted(() => {
       node.remove();
     });
+
+    if (isElement(focusTarget) && focusTarget.isConnected) {
+      focusTarget.focus();
+    }
   }
 
-  function open({ currentSettings, onSave }) {
+  function open({ currentSettings, onSave, currentTarget }) {
     close();
 
     let isSaving = false;
+    restoreFocusTarget = isElement(currentTarget) ? currentTarget : document.activeElement;
     overlay = document.createElement("div");
     overlay.className = constants.MODAL_OVERLAY_CLASS;
     overlay.innerHTML = `
@@ -33,6 +52,7 @@ function createSettingsModal({
         <select id="fmt-target-language"></select>
         <label for="fmt-preferred-provider">${i18n.t("settings.preferredProvider")}</label>
         <select id="fmt-preferred-provider"></select>
+        <p class="fmt-settings-modal-provider-notice">${i18n.t("settings.providerNotice")}</p>
         <div class="fmt-settings-modal-error" aria-live="polite"></div>
         <footer>
           <button type="button" data-variant="secondary">${i18n.t("settings.cancel")}</button>
@@ -51,6 +71,37 @@ function createSettingsModal({
       providerSelect.disabled = isSaving;
       cancelButton.disabled = isSaving;
       saveButton.disabled = isSaving;
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (!isSaving) {
+          event.preventDefault();
+          close();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusableElements = getFocusableElements(overlay);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey && activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
     };
 
     for (const language of languages) {
@@ -77,6 +128,7 @@ function createSettingsModal({
         close();
       }
     });
+    overlay.addEventListener("keydown", handleKeyDown);
     cancelButton.addEventListener("click", () => {
       if (isSaving) {
         return;

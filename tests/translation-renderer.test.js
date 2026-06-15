@@ -99,3 +99,111 @@ test("renderer clears thread artifacts for restore-original behavior", () => {
     cleanup();
   }
 });
+
+test("renderer clears message-scoped inline artifacts from only the current body container", () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Message" id="message-node">
+          <div class="v-Message-body" id="body-a">
+            <p id="source-a">Hello world</p>
+          </div>
+          <div class="v-Message-body" id="body-b">
+            <p id="source-b">Second message</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const segmenter = createSegmenter({
+      constants: DOM_CONSTANTS,
+      policies: textPolicies,
+      runtimeState
+    });
+    const renderer = createTranslationRenderer({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      runtimeState,
+      segmenter
+    });
+    const sourceA = document.getElementById("source-a");
+    const sourceB = document.getElementById("source-b");
+
+    renderer.renderTranslatedSegments(
+      [{ id: "seg-a", element: sourceA, sourceElement: sourceA, text: "Hello world" }],
+      ["你好"]
+    );
+    renderer.renderTranslatedSegments(
+      [{ id: "seg-b", element: sourceB, sourceElement: sourceB, text: "Second message" }],
+      ["第二封"]
+    );
+
+    renderer.clearMessageTranslations({
+      messageNode: document.getElementById("message-node"),
+      body: document.getElementById("body-a"),
+      contentRoot: document.getElementById("body-a")
+    });
+
+    assert.equal(document.querySelector('[data-fmt-segment-id="seg-a"]'), null);
+    assert.equal(document.querySelector('[data-fmt-segment-id="seg-b"]').textContent.trim(), "第二封");
+  } finally {
+    cleanup();
+  }
+});
+
+test("renderer prunes obsolete segment translations while preserving current ones in the message body", () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Message" id="message-node">
+          <div class="v-Message-body" id="body-a">
+            <p id="source-a">Hello world</p>
+            <p id="source-b">Second line</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const segmenter = createSegmenter({
+      constants: DOM_CONSTANTS,
+      policies: textPolicies,
+      runtimeState
+    });
+    const renderer = createTranslationRenderer({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      runtimeState,
+      segmenter
+    });
+    const sourceA = document.getElementById("source-a");
+    const sourceB = document.getElementById("source-b");
+    const segments = [
+      { id: "seg-a", element: sourceA, sourceElement: sourceA, text: "Hello world" },
+      { id: "seg-b", element: sourceB, sourceElement: sourceB, text: "Second line" }
+    ];
+
+    renderer.renderTranslatedSegments(segments, ["你好", "第二行"]);
+    renderer.pruneMessageTranslations({
+      messageNode: document.getElementById("message-node"),
+      body: document.getElementById("body-a"),
+      contentRoot: document.getElementById("body-a")
+    }, [segments[1]]);
+
+    assert.equal(document.querySelector('[data-fmt-segment-id="seg-a"]'), null);
+    assert.equal(document.querySelector('[data-fmt-segment-id="seg-b"]').textContent.trim(), "第二行");
+  } finally {
+    cleanup();
+  }
+});

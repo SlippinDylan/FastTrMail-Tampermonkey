@@ -13,7 +13,7 @@ const EDGE_FALLBACK_HEADERS = Object.freeze({
   "sec-ch-ua-platform": "\"Windows\""
 });
 
-function createEdgeAuth({ xhr, now = Date.now, diagnostics = createNoopDiagnostics(), browserEnv = globalThis }) {
+function createEdgeAuth({ xhr, now = Date.now, diagnostics = createNoopDiagnostics() }) {
   let cache = null;
   let inflight = null;
 
@@ -51,32 +51,7 @@ function createEdgeAuth({ xhr, now = Date.now, diagnostics = createNoopDiagnosti
   }
 
   function getFallbackHeaders() {
-    const navigator = browserEnv?.navigator || null;
-    const userAgentData = navigator?.userAgentData || null;
-    const hasStructuredBrowserData = Array.isArray(userAgentData?.brands) && userAgentData.brands.length > 0;
-    const rawUserAgent = typeof navigator?.userAgent === "string" ? navigator.userAgent.trim() : "";
-    const userAgent = hasStructuredBrowserData || /^Mozilla\//.test(rawUserAgent)
-      ? rawUserAgent || EDGE_FALLBACK_HEADERS["user-agent"]
-      : EDGE_FALLBACK_HEADERS["user-agent"];
-    const brands = Array.isArray(userAgentData?.brands) && userAgentData.brands.length > 0
-      ? userAgentData.brands
-        .filter((brand) => brand && brand.brand && brand.version)
-        .map((brand) => `"${brand.brand}";v="${brand.version}"`)
-        .join(", ")
-      : EDGE_FALLBACK_HEADERS["sec-ch-ua"];
-    const isMobile = typeof userAgentData?.mobile === "boolean"
-      ? userAgentData.mobile
-      : EDGE_FALLBACK_HEADERS["sec-ch-ua-mobile"] === "?1";
-    const platform = typeof userAgentData?.platform === "string" && userAgentData.platform.trim()
-      ? `"${userAgentData.platform.trim()}"`
-      : EDGE_FALLBACK_HEADERS["sec-ch-ua-platform"];
-
-    return {
-      "user-agent": userAgent,
-      "sec-ch-ua": brands || EDGE_FALLBACK_HEADERS["sec-ch-ua"],
-      "sec-ch-ua-mobile": isMobile ? "?1" : "?0",
-      "sec-ch-ua-platform": platform
-    };
+    return { ...EDGE_FALLBACK_HEADERS };
   }
 
   return {
