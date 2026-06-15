@@ -281,3 +281,139 @@ test("lifecycle suppresses async observer feedback for DOM writes wrapped in wit
     cleanup();
   }
 });
+
+test("lifecycle refreshes the active thread when an existing body text node changes in place", async () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar"></div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Subject</h1></div>
+              <div class="v-Message">
+                <div class="v-Message-body">
+                  <div class="message-body-text">Original body text</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const threadRoot = document.querySelector(".v-Thread");
+    const bodyTextNode = document.querySelector(".message-body-text").firstChild;
+    const refreshCalls = [];
+
+    const app = {
+      injectButtons() {},
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      scheduleThreadRefresh(root, options) {
+        refreshCalls.push({ root, options });
+      }
+    };
+
+    const threadDom = {
+      findThreadRoot() {
+        return threadRoot;
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState(root) {
+        return root === threadRoot ? { active: true } : null;
+      }
+    };
+
+    const lifecycle = createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    });
+
+    lifecycle.initialize();
+    bodyTextNode.data = "Updated body text";
+    await waitForTick();
+    await waitForTick();
+
+    assert.deepEqual(refreshCalls, [{ root: threadRoot, options: { immediate: true } }]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("lifecycle refreshes the active thread when an existing title text node changes in place", async () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar"></div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Original subject</h1></div>
+              <div class="v-Message">
+                <div class="v-Message-body">
+                  <div class="message-body-text">Body text</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const threadRoot = document.querySelector(".v-Thread");
+    const titleTextNode = document.querySelector(".v-Thread-title h1").firstChild;
+    const refreshCalls = [];
+
+    const app = {
+      injectButtons() {},
+      onTranslateClick() {},
+      resetDocumentTranslationState() {},
+      scheduleThreadRefresh(root, options) {
+        refreshCalls.push({ root, options });
+      }
+    };
+
+    const threadDom = {
+      findThreadRoot() {
+        return threadRoot;
+      },
+      pruneDetachedThreadStates() {},
+      getExistingThreadState(root) {
+        return root === threadRoot ? { active: true } : null;
+      }
+    };
+
+    const lifecycle = createLifecycle({
+      app,
+      constants: DOM_CONSTANTS,
+      document: global.document,
+      runtimeState,
+      threadDom
+    });
+
+    lifecycle.initialize();
+    titleTextNode.data = "Updated subject";
+    await waitForTick();
+    await waitForTick();
+
+    assert.deepEqual(refreshCalls, [{ root: threadRoot, options: { immediate: true } }]);
+  } finally {
+    cleanup();
+  }
+});

@@ -10,6 +10,9 @@ const {
   createNoopDiagnostics
 } = require("../src/diagnostics/diagnostics.js");
 const { createDiagnosticsStore } = require("../src/diagnostics/store.js");
+const { DOM_CONSTANTS } = require("../src/config/defaults.js");
+const { createTranslationRenderer } = require("../src/ui/translation-renderer.js");
+const { installDom } = require("./helpers/dom.js");
 
 test("diagnostics logger stays silent while disabled and emits structured entries once enabled", () => {
   const calls = [];
@@ -80,6 +83,25 @@ test("diagnostics store normalizes persisted values and toggles them", async () 
   assert.deepEqual(writes, [{ key: "diagnosticsEnabled", value: false }]);
 });
 
+test("diagnostics store toggleEnabled still works when the method is extracted from the store object", async () => {
+  let persistedValue = true;
+  const store = createDiagnosticsStore({
+    tmApi: {
+      async getValue() {
+        return persistedValue;
+      },
+      async setValue(key, value) {
+        void key;
+        persistedValue = value;
+      }
+    }
+  });
+  const { toggleEnabled } = store;
+
+  assert.equal(await toggleEnabled(), false);
+  assert.equal(persistedValue, false);
+});
+
 test("diagnostics menu command toggles persisted state and the live diagnostics instance", async () => {
   let menuHandler = null;
   const diagnostics = createNoopDiagnostics();
@@ -112,4 +134,32 @@ test("diagnostics menu command toggles persisted state and the live diagnostics 
 
   assert.equal(enabledState, true);
   assert.equal(setEnabledCalls, 1);
+});
+
+test("translation renderer ignores invalid bodies when removing inline translations", () => {
+  const { cleanup } = installDom();
+
+  try {
+    const renderer = createTranslationRenderer({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      runtimeState: {
+        withObserverMuted(fn) {
+          return fn();
+        }
+      },
+      segmenter: {
+        getExistingSegmentAnchor() {
+          return null;
+        },
+        ensureSegmentAnchor() {
+          return null;
+        }
+      }
+    });
+
+    assert.doesNotThrow(() => renderer.removeInlineTranslations(null));
+  } finally {
+    cleanup();
+  }
 });

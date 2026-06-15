@@ -23,6 +23,7 @@ function createSettingsModal({
   function open({ currentSettings, onSave }) {
     close();
 
+    let isSaving = false;
     overlay = document.createElement("div");
     overlay.className = constants.MODAL_OVERLAY_CLASS;
     overlay.innerHTML = `
@@ -32,6 +33,7 @@ function createSettingsModal({
         <select id="fmt-target-language"></select>
         <label for="fmt-preferred-provider">${i18n.t("settings.preferredProvider")}</label>
         <select id="fmt-preferred-provider"></select>
+        <div class="fmt-settings-modal-error" aria-live="polite"></div>
         <footer>
           <button type="button" data-variant="secondary">${i18n.t("settings.cancel")}</button>
           <button type="button" data-variant="primary">${i18n.t("settings.save")}</button>
@@ -39,10 +41,17 @@ function createSettingsModal({
       </div>
     `;
 
-    const select = overlay.querySelector("select");
+    const select = overlay.querySelector("#fmt-target-language");
     const providerSelect = overlay.querySelector("#fmt-preferred-provider");
+    const errorNode = overlay.querySelector(".fmt-settings-modal-error");
     const cancelButton = overlay.querySelector('button[data-variant="secondary"]');
     const saveButton = overlay.querySelector('button[data-variant="primary"]');
+    const syncPendingState = () => {
+      select.disabled = isSaving;
+      providerSelect.disabled = isSaving;
+      cancelButton.disabled = isSaving;
+      saveButton.disabled = isSaving;
+    };
 
     for (const language of languages) {
       const option = document.createElement("option");
@@ -61,17 +70,49 @@ function createSettingsModal({
     }
 
     overlay.addEventListener("click", (event) => {
+      if (isSaving) {
+        return;
+      }
       if (event.target === overlay) {
         close();
       }
     });
-    cancelButton.addEventListener("click", () => close());
-    saveButton.addEventListener("click", async () => {
-      await onSave({
-        targetLanguage: select.value,
-        preferredProvider: providerSelect.value
-      });
+    cancelButton.addEventListener("click", () => {
+      if (isSaving) {
+        return;
+      }
       close();
+    });
+    saveButton.addEventListener("click", async () => {
+      if (isSaving) {
+        return;
+      }
+
+      isSaving = true;
+      syncPendingState();
+
+      if (errorNode instanceof globalThis.HTMLElement) {
+        errorNode.textContent = "";
+      }
+
+      try {
+        await onSave({
+          targetLanguage: select.value,
+          preferredProvider: providerSelect.value
+        });
+        close();
+      } catch (error) {
+        if (errorNode instanceof globalThis.HTMLElement) {
+          errorNode.textContent = typeof error?.message === "string" && error.message.trim()
+            ? error.message.trim()
+            : i18n.t("settings.saveFailed");
+        }
+      } finally {
+        isSaving = false;
+        if (overlay) {
+          syncPendingState();
+        }
+      }
     });
 
     runtimeState.withObserverMuted(() => {

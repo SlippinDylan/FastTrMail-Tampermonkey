@@ -16,6 +16,7 @@ const MESSAGES = Object.freeze({
     "settings.save": "保存",
     "settings.cancel": "取消",
     "settings.saved": "设置已保存。",
+    "settings.saveFailed": "保存失败。",
     "providers.edge-web": "Microsoft Edge（免 Key）",
     "providers.google-web": "Google Web（实验性 / 免费）"
   }),
@@ -36,6 +37,7 @@ const MESSAGES = Object.freeze({
     "settings.save": "Save",
     "settings.cancel": "Cancel",
     "settings.saved": "Settings saved.",
+    "settings.saveFailed": "Failed to save settings.",
     "providers.edge-web": "Microsoft Edge (No Key)",
     "providers.google-web": "Google Web (Experimental / Free)"
   })

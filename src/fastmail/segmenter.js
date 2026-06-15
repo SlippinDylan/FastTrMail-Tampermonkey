@@ -26,6 +26,18 @@ function createSegmenter({
   runtimeState,
   document = globalThis.document
 }) {
+  function createTextExtractionCache() {
+    return new WeakMap();
+  }
+
+  function getTextExtractionCache(options) {
+    if (options instanceof WeakMap) {
+      return options;
+    }
+
+    return options?.textCache instanceof WeakMap ? options.textCache : null;
+  }
+
   function createElementSegment(element, text) {
     const segmentId = getOrAssignSegmentId(element);
 
@@ -103,7 +115,12 @@ function createSegmenter({
     return anchor;
   }
 
-  function extractBodyText(element) {
+  function extractBodyText(element, options = undefined) {
+    const textCache = getTextExtractionCache(options);
+    if (textCache && element instanceof globalThis.HTMLElement && textCache.has(element)) {
+      return textCache.get(element);
+    }
+
     const clone = element?.cloneNode?.(true);
 
     if (!(clone instanceof globalThis.HTMLElement)) {
@@ -115,10 +132,16 @@ function createSegmenter({
       .forEach((node) => node.remove());
 
     const text = clone.innerText || clone.textContent || "";
-    return text
+    const normalizedText = text
       .replace(/\n{3,}/g, "\n\n")
       .replace(/[ \t]+\n/g, "\n")
       .trim();
+
+    if (textCache && element instanceof globalThis.HTMLElement) {
+      textCache.set(element, normalizedText);
+    }
+
+    return normalizedText;
   }
 
   function isVisible(element) {
@@ -137,7 +160,7 @@ function createSegmenter({
     return ["p", "div", "li", "blockquote", "td", "th", "h1", "h2", "h3", "h4", "pre"].includes(tagName);
   }
 
-  function isStandaloneBlock(element) {
+  function isStandaloneBlock(element, options = undefined) {
     const tagName = element.tagName.toLowerCase();
     if (tagName === "div" && element.querySelector("p, li, blockquote, td, th, h1, h2, h3, h4, pre")) {
       return false;
@@ -160,7 +183,7 @@ function createSegmenter({
         continue;
       }
 
-      const childText = extractBodyText(child);
+      const childText = extractBodyText(child, options);
       if (isVisible(child) && childText.length > 0) {
         return false;
       }
@@ -190,7 +213,7 @@ function createSegmenter({
     return policies.hasTranslatableText(compact);
   }
 
-  function hasNestedTranslatableBlocks(element) {
+  function hasNestedTranslatableBlocks(element, options = undefined) {
     const descendants = element.querySelectorAll("p, div, li, blockquote, td, th, h1, h2, h3, h4, pre");
 
     for (const descendant of descendants) {
@@ -206,7 +229,7 @@ function createSegmenter({
         continue;
       }
 
-      const text = extractBodyText(descendant);
+      const text = extractBodyText(descendant, options);
       if (isTranslatableSegment(text, descendant)) {
         return true;
       }
@@ -215,7 +238,7 @@ function createSegmenter({
     return false;
   }
 
-  function collectFlowSegments(container) {
+  function collectFlowSegments(container, options = undefined) {
     if (!(container instanceof globalThis.HTMLElement)) {
       return [];
     }
@@ -295,12 +318,12 @@ function createSegmenter({
             continue;
           }
 
-          const text = extractBodyText(node);
+          const text = extractBodyText(node, options);
           if (
             !text ||
             shouldSkipSegmentText(text) ||
             !isTranslatableSegment(text, node) ||
-            hasNestedTranslatableBlocks(node)
+            hasNestedTranslatableBlocks(node, options)
           ) {
             consecutiveBreaks = 0;
             continue;
@@ -311,7 +334,7 @@ function createSegmenter({
           continue;
         }
 
-        const text = extractBodyText(node);
+        const text = extractBodyText(node, options);
         textParts.push(text);
         if (text.trim()) {
           lastContentNode = node;
@@ -324,7 +347,7 @@ function createSegmenter({
     return segments;
   }
 
-  function collectBlockSegments(root) {
+  function collectBlockSegments(root, options = undefined) {
     if (!(root instanceof globalThis.HTMLElement)) {
       return [];
     }
@@ -344,19 +367,19 @@ function createSegmenter({
       }
 
       if (candidate.tagName.toLowerCase() === "pre") {
-        segments.push(...collectFlowSegments(candidate));
+        segments.push(...collectFlowSegments(candidate, options));
         continue;
       }
 
-      if (!isVisible(candidate) || !isStandaloneBlock(candidate)) {
+      if (!isVisible(candidate) || !isStandaloneBlock(candidate, options)) {
         continue;
       }
 
-      const text = extractBodyText(candidate);
+      const text = extractBodyText(candidate, options);
       if (
         shouldSkipSegmentText(text) ||
         !isTranslatableSegment(text, candidate) ||
-        hasNestedTranslatableBlocks(candidate)
+        hasNestedTranslatableBlocks(candidate, options)
       ) {
         continue;
       }
@@ -376,7 +399,7 @@ function createSegmenter({
     return preferredRoot instanceof globalThis.HTMLElement ? preferredRoot : bodyElement;
   }
 
-  function shouldUseFlowSegmentation(container) {
+  function shouldUseFlowSegmentation(container, options = undefined) {
     if (!(container instanceof globalThis.HTMLElement)) {
       return false;
     }
@@ -403,7 +426,7 @@ function createSegmenter({
       }
 
       if (node instanceof globalThis.HTMLElement && !isBlockSegmentCandidate(node)) {
-        const text = extractBodyText(node);
+        const text = extractBodyText(node, options);
         if (text.trim()) {
           return true;
         }
@@ -413,17 +436,17 @@ function createSegmenter({
     return false;
   }
 
-  function createWholeRootFallbackSegment(root) {
+  function createWholeRootFallbackSegment(root, options = undefined) {
     if (!(root instanceof globalThis.HTMLElement)) {
       return null;
     }
 
-    const text = extractBodyText(root);
+    const text = extractBodyText(root, options);
     if (!text || shouldSkipSegmentText(text) || !policies.hasTranslatableText(text)) {
       return null;
     }
 
-    const lastContentNode = findLastMeaningfulNode(root);
+    const lastContentNode = findLastMeaningfulNode(root, options);
     if (lastContentNode?.parentNode) {
       return createAnchoredSegment(lastContentNode, root, text);
     }
@@ -431,7 +454,7 @@ function createSegmenter({
     return createElementSegment(root, text);
   }
 
-  function findLastMeaningfulNode(root) {
+  function findLastMeaningfulNode(root, options = undefined) {
     const nodes = Array.from(root.childNodes).reverse();
     for (const node of nodes) {
       if (node instanceof globalThis.HTMLElement && node.classList.contains(constants.INLINE_TRANSLATION_CLASS)) {
@@ -443,7 +466,7 @@ function createSegmenter({
       }
 
       if (node instanceof globalThis.HTMLElement) {
-        const text = extractBodyText(node);
+        const text = extractBodyText(node, options);
         if (!text) {
           continue;
         }
@@ -455,13 +478,13 @@ function createSegmenter({
     return null;
   }
 
-  function collectFallbackSegments(bodyElement, flowRoot) {
+  function collectFallbackSegments(bodyElement, flowRoot, options = undefined) {
     const roots = [flowRoot, bodyElement].filter((root, index, items) => {
       return root instanceof globalThis.HTMLElement && items.indexOf(root) === index;
     });
 
     for (const root of roots) {
-      const segment = createWholeRootFallbackSegment(root);
+      const segment = createWholeRootFallbackSegment(root, options);
       if (segment) {
         return [segment];
       }
@@ -470,22 +493,22 @@ function createSegmenter({
     return [];
   }
 
-  function collectTranslatableSegments(bodyElement) {
+  function collectTranslatableSegments(bodyElement, options = undefined) {
     const flowRoot = findFlowSegmentRoot(bodyElement);
 
-    if (flowRoot && shouldUseFlowSegmentation(flowRoot)) {
-      const flowSegments = collectFlowSegments(flowRoot);
+    if (flowRoot && shouldUseFlowSegmentation(flowRoot, options)) {
+      const flowSegments = collectFlowSegments(flowRoot, options);
       if (flowSegments.length > 0) {
         return flowSegments;
       }
     }
 
-    const blockSegments = collectBlockSegments(bodyElement);
+    const blockSegments = collectBlockSegments(bodyElement, options);
     if (blockSegments.length > 0) {
       return blockSegments;
     }
 
-    return collectFallbackSegments(bodyElement, flowRoot);
+    return collectFallbackSegments(bodyElement, flowRoot, options);
   }
 
   function getSegmentSignature(segments) {
@@ -494,6 +517,7 @@ function createSegmenter({
 
   return {
     collectTranslatableSegments,
+    createTextExtractionCache,
     ensureSegmentAnchor,
     extractBodyText,
     getExistingSegmentAnchor,

@@ -26,6 +26,7 @@ test("userscript build emits reproducible install artifacts sourced from package
   assert.match(output, /@grant\s+GM_registerMenuCommand/);
   assert.match(output, /@connect\s+edge\.microsoft\.com/);
   assert.match(output, /@connect\s+api\.cognitive\.microsofttranslator\.com/);
+  assert.match(output, /@connect\s+translate\.googleapis\.com/);
   assert.match(output, /FastTrMail/);
   assert.equal(versionedOutput, output);
 

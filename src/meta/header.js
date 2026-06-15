@@ -13,5 +13,6 @@ module.exports = function createHeader({ version, author, iconDataUrl }) {
 // @grant        GM_registerMenuCommand
 // @connect      edge.microsoft.com
 // @connect      api.cognitive.microsofttranslator.com
+// @connect      translate.googleapis.com
 // ==/UserScript==`;
 };

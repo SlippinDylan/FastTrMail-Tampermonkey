@@ -4,7 +4,8 @@ function createTitleState() {
     translatedText: "",
     status: "idle",
     error: "",
-    requestId: 0
+    requestId: 0,
+    settingsRevision: 0
   };
 }
 
@@ -21,7 +22,8 @@ function createRuntimeState({ getLocationKey }) {
     segmentCounter: 0,
     threadStateCounter: 0,
     currentLocationKey: getLocationKey(),
-    documentGeneration: 0
+    documentGeneration: 0,
+    settingsRevision: 0
   };
 
   function nextSegmentId() {
@@ -103,7 +105,8 @@ function createRuntimeState({ getLocationKey }) {
       segmentSignature: "",
       translatedSegments: null,
       requestSerial: 0,
-      error: ""
+      error: "",
+      settingsRevision: 0
     };
   }
 
@@ -211,6 +214,11 @@ function createRuntimeState({ getLocationKey }) {
     return state.documentGeneration;
   }
 
+  function advanceSettingsRevision() {
+    state.settingsRevision += 1;
+    return state.settingsRevision;
+  }
+
   return {
     state,
     nextSegmentId,
@@ -231,7 +239,8 @@ function createRuntimeState({ getLocationKey }) {
     isRunCurrent,
     hasLocationChanged,
     syncCurrentLocationKey,
-    advanceDocumentGeneration
+    advanceDocumentGeneration,
+    advanceSettingsRevision
   };
 }
 

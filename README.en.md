@@ -7,16 +7,16 @@ This is the standalone Tampermonkey repository for FastTrMail and runs only on F
 ## Scope
 
 - Matches `https://app.fastmail.com/*` only
-- Keeps only the `edge-web` translation transport
+- Ships both `edge-web` and `google-web`, with user-selected priority and automatic fallback
 - Preserves the subject/body “append below original text” translation pattern
 - Preserves the second-click restore-original interaction
 - Preserves the existing Fastmail toolbar button position
-- Keeps only one setting: `targetLanguage`
+- Exposes both `targetLanguage` and `preferredProvider`
 
 ## Settings Entry
 
 - Tampermonkey menu command: `FastTrMail 设置`
-- In-page modal: choose and save the target language
+- In-page modal: choose and save the target language and preferred translator
 
 ## Local Development
 
@@ -41,7 +41,7 @@ Build outputs:
 ## Module Boundaries
 
 - `src/fastmail/`: Fastmail DOM detection, thread/body targeting, message segmentation
-- `src/translation/`: Edge auth, translation requests, cancellation control
+- `src/translation/`: Edge auth, Edge/Google translation requests, cancellation control, provider fallback
 - `src/ui/`: button, translation rendering, settings modal, styles
 - `src/core/`: runtime state, page lifecycle, app orchestration
 - `src/platform/`: wrappers around Tampermonkey `GM_*` APIs

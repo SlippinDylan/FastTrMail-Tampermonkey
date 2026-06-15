@@ -83,6 +83,14 @@ function createStyles(constants) {
       font-size: 14px;
     }
 
+    .${constants.MODAL_CLASS} .fmt-settings-modal-error {
+      min-height: 20px;
+      margin-top: 10px;
+      color: #c94b5b;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
     .${constants.MODAL_CLASS} footer {
       display: flex;
       justify-content: center;

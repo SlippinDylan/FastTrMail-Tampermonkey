@@ -59,6 +59,7 @@ function createLifecycle({
     observer.observe(document.body, {
       childList: true,
       subtree: true,
+      characterData: true,
       attributes: true,
       attributeFilter: ["class", "aria-hidden"]
     });
@@ -170,6 +171,11 @@ function createLifecycle({
         continue;
       }
 
+      if (mutation.type === "characterData") {
+        addAffectedThreadRootsFromNode(getMutationTargetElement(mutation.target), affectedThreadRoots);
+        continue;
+      }
+
       addAffectedThreadRootsFromNode(mutation.target, affectedThreadRoots);
 
       for (const node of mutation.addedNodes || []) {
@@ -213,6 +219,18 @@ function createLifecycle({
     });
   }
 
+  function getMutationTargetElement(node) {
+    if (node instanceof globalThis.HTMLElement) {
+      return node;
+    }
+
+    if (node instanceof globalThis.Node) {
+      return node.parentElement;
+    }
+
+    return null;
+  }
+
   function isInternalMutation(mutation) {
     const nodes = [
       ...Array.from(mutation.addedNodes || []),
@@ -221,6 +239,10 @@ function createLifecycle({
 
     if (mutation.type === "attributes") {
       return isInternalNode(mutation.target);
+    }
+
+    if (mutation.type === "characterData") {
+      return isInternalNode(getMutationTargetElement(mutation.target));
     }
 
     return nodes.length > 0 && nodes.every((node) => isInternalChildMutationNode(node));

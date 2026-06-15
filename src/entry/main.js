@@ -20,6 +20,7 @@ const { createRequestRegistry } = require("../translation/request-registry.js");
 const { createTranslateService } = require("../translation/translate-service.js");
 const { createI18n } = require("../ui/i18n.js");
 const {
+  createMenuCommandRegistry,
   registerDiagnosticsMenuCommand,
   registerSettingsMenuCommand
 } = require("../ui/menu-command.js");
@@ -58,6 +59,7 @@ async function bootstrap() {
 
   try {
     const tmApi = createTmApi(globalThis);
+    const menuCommands = createMenuCommandRegistry({ tmApi });
     const diagnosticsStore = createDiagnosticsStore({ tmApi });
     diagnostics = createDiagnostics({
       enabled: await diagnosticsStore.getEnabled()
@@ -140,19 +142,19 @@ async function bootstrap() {
     });
 
     ensureStyles(globalThis.document, DOM_CONSTANTS);
-    registerSettingsMenuCommand({
-      tmApi,
+    menuCommands.ensure("settings", () => registerSettingsMenuCommand({
+      tmApi: menuCommands.tmApi,
       i18n,
       onClick: () => {
         void app.openSettings();
       }
-    });
-    registerDiagnosticsMenuCommand({
-      tmApi,
+    }));
+    menuCommands.ensure("diagnostics", () => registerDiagnosticsMenuCommand({
+      tmApi: menuCommands.tmApi,
       i18n,
       diagnostics,
       diagnosticsStore
-    });
+    }));
     await app.ensureTargetLanguageId();
     lifecycle.initialize();
     diagnostics.record("bootstrap.ready", {

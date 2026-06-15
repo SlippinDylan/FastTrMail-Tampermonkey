@@ -228,3 +228,129 @@ test("thread dom normalizes toolbar button activations onto the button element f
     cleanup();
   }
 });
+
+test("thread dom injects into the toolbar that belongs to the active thread instead of the first page toolbar", () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Toolbar" data-toolbar="page">
+            <button><span class="label">Page actions</span></button>
+            <div class="v-Toolbar-flex"></div>
+          </div>
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Toolbar" data-toolbar="thread">
+                <button><span class="label">Archive</span></button>
+                <button><span class="label">More</span></button>
+                <div class="v-Toolbar-flex"></div>
+              </div>
+              <div class="v-Thread-title"><h1>Subject</h1></div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const segmenter = createSegmenter({
+      constants: DOM_CONSTANTS,
+      policies: textPolicies,
+      runtimeState
+    });
+    const threadDom = createThreadDom({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "zh-CN" } }),
+      pageLocator,
+      policies: textPolicies,
+      runtimeState,
+      segmenter,
+      toolbarButtonApi
+    });
+
+    threadDom.injectButtons(document, () => {});
+
+    assert.equal(document.querySelector('[data-toolbar="page"] .fmt-translate-button'), null);
+    assert.ok(document.querySelector('[data-toolbar="thread"] .fmt-translate-button'));
+  } finally {
+    cleanup();
+  }
+});
+
+test("thread dom and segment collection reuse a shared text extraction cache within one refresh pass", () => {
+  const { cleanup } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <div class="v-Page">
+          <div class="v-Page-content">
+            <div class="v-Thread">
+              <div class="v-Thread-title"><h1>Subject line</h1></div>
+              <div class="v-MessageCard app-contentCard"></div>
+              <div class="v-Message">
+                <div class="v-Message-body">
+                  <article class="u-article">
+                    <div>
+                      <p>Hello world</p>
+                      <p>Second line</p>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+
+  try {
+    const runtimeState = createRuntimeState({
+      getLocationKey: () => pageLocator.getLocationKey(global.location)
+    });
+    const segmenter = createSegmenter({
+      constants: DOM_CONSTANTS,
+      policies: textPolicies,
+      runtimeState
+    });
+    const threadDom = createThreadDom({
+      constants: DOM_CONSTANTS,
+      i18n: createI18n({ navigator: { language: "en-US" } }),
+      pageLocator,
+      policies: textPolicies,
+      runtimeState,
+      segmenter,
+      toolbarButtonApi
+    });
+
+    const threadRoot = document.querySelector(".v-Thread");
+    const body = document.querySelector(".v-Message-body");
+    const article = document.querySelector(".u-article");
+    const cloneCounts = new Map();
+    const originalCloneNode = global.HTMLElement.prototype.cloneNode;
+
+    global.HTMLElement.prototype.cloneNode = function patchedCloneNode(deep) {
+      cloneCounts.set(this, (cloneCounts.get(this) || 0) + 1);
+      return originalCloneNode.call(this, deep);
+    };
+
+    try {
+      const textCache = segmenter.createTextExtractionCache();
+      const descriptors = threadDom.collectMessageDescriptors(threadRoot, { textCache });
+      const segments = segmenter.collectTranslatableSegments(descriptors[0].contentRoot, { textCache });
+
+      assert.ok(segments.length > 0);
+      assert.equal(cloneCounts.get(body), 1);
+      assert.equal(cloneCounts.get(article), 1);
+    } finally {
+      global.HTMLElement.prototype.cloneNode = originalCloneNode;
+    }
+  } finally {
+    cleanup();
+  }
+});
