@@ -58,11 +58,17 @@ function createApp({
     threadDom.injectButtons(root, onTranslateClick);
   }
 
-  async function openSettings() {
+  async function runOpenSettings() {
     const resolvedSettings = await ensureSettings();
     settingsModal.open({
       currentSettings: resolvedSettings,
       onSave: persistSettings
+    });
+  }
+
+  function openSettings() {
+    return runOpenSettings().catch((error) => {
+      diagnostics.recordError("ui.settings.open.unexpected-error", error, {});
     });
   }
 
@@ -120,7 +126,22 @@ function createApp({
     threadDom.clearThreadDomState(threadRoot);
   }
 
-  async function onTranslateClick(event) {
+  function disposeThread(threadRoot) {
+    const threadState = threadDom.getExistingThreadState(threadRoot, { includeStale: true });
+    if (threadState) {
+      cancelPendingThreadRequests(threadState);
+    }
+
+    threadDom.resetThreadState(threadRoot);
+    renderer.clearThreadRenderArtifacts(threadRoot);
+    threadDom.clearThreadDomState(threadRoot);
+  }
+
+  function reportLifecycleError(event, error) {
+    diagnostics.recordError(event, error, {});
+  }
+
+  async function runTranslateClick(event) {
     const button = event.currentTarget;
     if (!(button instanceof globalThis.HTMLElement)) {
       diagnostics.record("ui.translate-click.invalid-target", {
@@ -161,6 +182,12 @@ function createApp({
     scheduleThreadRefresh(threadRoot, { immediate: true });
   }
 
+  function onTranslateClick(event) {
+    return runTranslateClick(event).catch((error) => {
+      diagnostics.recordError("ui.translate-click.unexpected-error", error, {});
+    });
+  }
+
   function scheduleThreadRefresh(threadRoot, { immediate = false, delayMs } = {}) {
     if (!(threadRoot instanceof globalThis.HTMLElement)) {
       return;
@@ -187,8 +214,18 @@ function createApp({
         : 80;
     state.refreshTimer = window.setTimeout(() => {
       state.refreshTimer = 0;
-      void refreshThread(threadRoot, state);
+      void refreshThreadSafely(threadRoot, state);
     }, delay);
+  }
+
+  async function refreshThreadSafely(threadRoot, threadState) {
+    try {
+      await refreshThread(threadRoot, threadState);
+    } catch (error) {
+      diagnostics.recordError("thread.refresh.unexpected-error", error, {
+        threadKey: threadState?.key || ""
+      });
+    }
   }
 
   async function refreshThread(threadRoot, threadState) {
@@ -231,8 +268,10 @@ function createApp({
         return;
       }
 
-      await processThreadTitle(threadRoot, threadState, runToken);
-      await processMessageDescriptors(threadRoot, threadState, descriptors, runToken, { textCache });
+      await Promise.all([
+        processThreadTitle(threadRoot, threadState, runToken),
+        processMessageDescriptors(threadRoot, threadState, descriptors, runToken, { textCache })
+      ]);
     } finally {
       threadState.processing = false;
 
@@ -350,6 +389,7 @@ function createApp({
       renderer.clearMessageStatus(descriptor);
 
       if (!descriptor.body) {
+        renderer.clearMessageTranslations?.(descriptor);
         if (threadDom.isMessageBodyDeferred(descriptor)) {
           messageState.status = "pending-body";
           messageState.error = "";
@@ -363,6 +403,7 @@ function createApp({
 
       const segments = segmenter.collectTranslatableSegments(descriptor.contentRoot || descriptor.body, { textCache });
       if (segments.length === 0) {
+        renderer.clearMessageTranslations?.(descriptor);
         messageState.status = "no-segments";
         messageState.error = i18n.t("content.noSegments");
         renderer.renderMessageStatus(descriptor, messageState.error, "error");
@@ -372,6 +413,7 @@ function createApp({
       const segmentSignature = segmenter.getSegmentSignature(segments);
       descriptor.segments = segments;
       descriptor.segmentSignature = segmentSignature;
+      renderer.pruneMessageTranslations?.(descriptor, segments);
 
       if (
         Array.isArray(messageState.translatedSegments) &&
@@ -546,9 +588,11 @@ function createApp({
 
   return {
     ensureTargetLanguageId,
+    disposeThread,
     injectButtons,
     onTranslateClick,
     openSettings,
+    reportLifecycleError,
     refreshActiveThreads,
     refreshThread,
     resetDocumentTranslationState,

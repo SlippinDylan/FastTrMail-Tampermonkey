@@ -57,6 +57,110 @@ test("google web translator normalizes upstream failures into stable translate e
   );
 });
 
+test("google web translator rejects oversized segment batches before starting requests", async () => {
+  let requestCount = 0;
+  const diagnosticsEvents = [];
+  const translator = createGoogleWebTranslator({
+    xhr: {
+      request() {
+        requestCount += 1;
+        throw new Error("should not request google for oversized batches");
+      }
+    },
+    diagnostics: {
+      record(event, payload) {
+        diagnosticsEvents.push({ event, payload });
+      },
+      recordError() {}
+    }
+  });
+
+  await assert.rejects(
+    translator.translateSegments(Array.from({ length: 25 }, (_, index) => `segment ${index}`), language),
+    (error) => {
+      assert.equal(error.code, ERROR_CODES.GOOGLE_TRANSLATE_FAILED);
+      assert.equal(error.metadata.reason, "too-many-segments");
+      assert.equal(error.metadata.segmentCount, 25);
+      return true;
+    }
+  );
+
+  assert.equal(requestCount, 0);
+  assert.deepEqual(diagnosticsEvents, [
+    {
+      event: "google-translate.request.start",
+      payload: {
+        segmentCount: 25,
+        targetLanguage: "zh-CN"
+      }
+    },
+    {
+      event: "google-translate.request.rejected",
+      payload: {
+        reason: "too-many-segments",
+        segmentCount: 25,
+        segmentLimit: 20
+      }
+    }
+  ]);
+});
+
+test("google web translator rejects URL-sized segments before starting requests", async () => {
+  let requestCount = 0;
+  const translator = createGoogleWebTranslator({
+    xhr: {
+      request() {
+        requestCount += 1;
+        throw new Error("should not request google for oversized urls");
+      }
+    }
+  });
+
+  await assert.rejects(
+    translator.translateSegments(["x".repeat(2000)], language),
+    (error) => {
+      assert.equal(error.code, ERROR_CODES.GOOGLE_TRANSLATE_FAILED);
+      assert.equal(error.metadata.reason, "url-too-long");
+      assert.ok(error.metadata.urlLength > 1800);
+      return true;
+    }
+  );
+
+  assert.equal(requestCount, 0);
+});
+
+test("google web translator preflights all segment URLs before starting mixed-batch requests", async () => {
+  let requestCount = 0;
+  const translator = createGoogleWebTranslator({
+    xhr: {
+      request() {
+        requestCount += 1;
+        return Promise.resolve({
+          status: 200,
+          responseText: JSON.stringify([[["ok", "short"]], null, "en"])
+        });
+      }
+    }
+  });
+
+  await assert.rejects(
+    translator.translateSegments([
+      "short-1",
+      "short-2",
+      "short-3",
+      "short-4",
+      "x".repeat(2000)
+    ], language),
+    (error) => {
+      assert.equal(error.code, ERROR_CODES.GOOGLE_TRANSLATE_FAILED);
+      assert.equal(error.metadata.reason, "url-too-long");
+      return true;
+    }
+  );
+
+  assert.equal(requestCount, 0);
+});
+
 test("google web translator preserves cancellation instead of converting it into a provider failure", async () => {
   let rejectRequest = null;
   let abortCount = 0;

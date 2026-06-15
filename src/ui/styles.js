@@ -83,6 +83,13 @@ function createStyles(constants) {
       font-size: 14px;
     }
 
+    .${constants.MODAL_CLASS} .fmt-settings-modal-provider-notice {
+      margin: 8px 0 0;
+      color: #6b7280;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .${constants.MODAL_CLASS} .fmt-settings-modal-error {
       min-height: 20px;
       margin-top: 10px;

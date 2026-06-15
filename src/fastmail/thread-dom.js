@@ -759,6 +759,18 @@ function createThreadDom({
     }
   }
 
+  function collectDetachedActiveThreadRoots() {
+    const roots = [];
+
+    for (const threadState of Array.from(runtimeState.state.activeThreadStates)) {
+      if (threadState.root instanceof globalThis.HTMLElement && !threadState.root.isConnected) {
+        roots.push(threadState.root);
+      }
+    }
+
+    return roots;
+  }
+
   function clearThreadDomState(root) {
     if (!root || typeof root.querySelectorAll !== "function") {
       return;
@@ -797,6 +809,7 @@ function createThreadDom({
     syncThreadButtons,
     updateButtonState,
     isManagedTranslateButton,
+    collectDetachedActiveThreadRoots,
     pruneDetachedThreadStates,
     clearThreadDomState
   };

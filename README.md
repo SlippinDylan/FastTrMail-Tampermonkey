@@ -7,7 +7,8 @@
 ## 功能范围
 
 - 仅匹配 `https://app.fastmail.com/*`
-- 内置 `edge-web` 与 `google-web` 两种翻译能力，并按用户设置决定优先级与自动回退顺序
+- 内置 `edge-web` 与 `google-web` 两种翻译能力；默认使用 `edge-web`，显式选择 `google-web` 时可在 Google 失败后回退到 Edge，Edge 失败不会自动放大为 Google 请求
+- 两个内置 provider 都依赖免 Key Web endpoint，外部服务协议可能变更或失效；上线时应保留备用 provider 预期
 - 保留主题和正文的“追加在原文下方”翻译模式
 - 保留再次点击按钮恢复原文的交互
 - 保留 Fastmail 邮件线程工具栏内的按钮位置

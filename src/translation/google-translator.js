@@ -7,6 +7,8 @@ const {
 const { createNoopDiagnostics } = require("../diagnostics/diagnostics.js");
 
 const SEGMENT_CONCURRENCY = 4;
+const MAX_SEGMENTS_PER_REQUEST = 20;
+const MAX_URL_LENGTH = 1800;
 const HTML_ENTITIES = Object.freeze({
   amp: "&",
   lt: "<",
@@ -60,6 +62,16 @@ function mapWithConcurrency(items, limit, mapper) {
   ).then(() => results);
 }
 
+function createGoogleTranslateUrl(segment, language) {
+  const endpoint = new URL("https://translate.googleapis.com/translate_a/single");
+  endpoint.searchParams.set("client", "gtx");
+  endpoint.searchParams.set("sl", "auto");
+  endpoint.searchParams.set("tl", language.google || language.id);
+  endpoint.searchParams.set("dt", "t");
+  endpoint.searchParams.set("q", segment);
+  return endpoint.toString();
+}
+
 function createGoogleWebTranslator({ xhr, diagnostics = createNoopDiagnostics() }) {
   return {
     translateSegments(segments, language) {
@@ -71,24 +83,53 @@ function createGoogleWebTranslator({ xhr, diagnostics = createNoopDiagnostics() 
           targetLanguage: language.id
         });
 
+        if (segments.length > MAX_SEGMENTS_PER_REQUEST) {
+          diagnostics.record("google-translate.request.rejected", {
+            reason: "too-many-segments",
+            segmentCount: segments.length,
+            segmentLimit: MAX_SEGMENTS_PER_REQUEST
+          });
+          throw createError(
+            ERROR_CODES.GOOGLE_TRANSLATE_FAILED,
+            "Google translate request was rejected before transport.",
+            {
+              reason: "too-many-segments",
+              segmentCount: segments.length,
+              segmentLimit: MAX_SEGMENTS_PER_REQUEST
+            }
+          );
+        }
+
+        const urls = segments.map((segment) => createGoogleTranslateUrl(segment, language));
+        const oversizedUrl = urls.find((url) => url.length > MAX_URL_LENGTH);
+        if (oversizedUrl) {
+          diagnostics.record("google-translate.request.rejected", {
+            reason: "url-too-long",
+            urlLength: oversizedUrl.length,
+            urlLengthLimit: MAX_URL_LENGTH
+          });
+          throw createError(
+            ERROR_CODES.GOOGLE_TRANSLATE_FAILED,
+            "Google translate request was rejected before transport.",
+            {
+              reason: "url-too-long",
+              urlLength: oversizedUrl.length,
+              urlLengthLimit: MAX_URL_LENGTH
+            }
+          );
+        }
+
         const translatedSegments = await mapWithConcurrency(
-          segments,
+          urls,
           SEGMENT_CONCURRENCY,
-          async (segment) => {
+          async (url) => {
             if (wasAborted) {
               throw createError(ERROR_CODES.TRANSLATION_CANCELLED, "Translation request was cancelled.");
             }
 
-            const endpoint = new URL("https://translate.googleapis.com/translate_a/single");
-            endpoint.searchParams.set("client", "gtx");
-            endpoint.searchParams.set("sl", "auto");
-            endpoint.searchParams.set("tl", language.google || language.id);
-            endpoint.searchParams.set("dt", "t");
-            endpoint.searchParams.set("q", segment);
-
             const request = xhr.request({
               method: "GET",
-              url: endpoint.toString(),
+              url,
               nocache: true,
               timeout: 15000
             });

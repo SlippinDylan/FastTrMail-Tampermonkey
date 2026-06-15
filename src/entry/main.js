@@ -145,9 +145,8 @@ async function bootstrap() {
     menuCommands.ensure("settings", () => registerSettingsMenuCommand({
       tmApi: menuCommands.tmApi,
       i18n,
-      onClick: () => {
-        void app.openSettings();
-      }
+      diagnostics,
+      onClick: app.openSettings
     }));
     menuCommands.ensure("diagnostics", () => registerDiagnosticsMenuCommand({
       tmApi: menuCommands.tmApi,

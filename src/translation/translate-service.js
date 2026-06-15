@@ -33,6 +33,55 @@ function createTranslateService({
       error?.code === ERROR_CODES.GOOGLE_TRANSLATE_FAILED;
   }
 
+  function shouldSkipFallbackProvider(fallbackProviderId, preferredProvider) {
+    return fallbackProviderId === "google-web" && preferredProvider !== "google-web";
+  }
+
+  function assertTranslatorContract(response, providerId, expectedSegmentCount) {
+    if (!Array.isArray(response?.translatedSegments)) {
+      throw createError(
+        ERROR_CODES.TRANSLATOR_CONTRACT_VIOLATION,
+        "Translator response did not match the request.",
+        {
+          providerId,
+          expectedSegmentCount,
+          actualSegmentCount: null,
+          reason: "translated-segments-not-array"
+        }
+      );
+    }
+
+    if (response.translatedSegments.length !== expectedSegmentCount) {
+      throw createError(
+        ERROR_CODES.TRANSLATOR_CONTRACT_VIOLATION,
+        "Translator response did not match the request.",
+        {
+          providerId,
+          expectedSegmentCount,
+          actualSegmentCount: response.translatedSegments.length,
+          reason: "translated-segment-count-mismatch"
+        }
+      );
+    }
+
+    const invalidSegmentIndex = response.translatedSegments.findIndex((item) => typeof item !== "string");
+    if (invalidSegmentIndex !== -1) {
+      throw createError(
+        ERROR_CODES.TRANSLATOR_CONTRACT_VIOLATION,
+        "Translator response did not match the request.",
+        {
+          providerId,
+          expectedSegmentCount,
+          actualSegmentCount: response.translatedSegments.length,
+          invalidSegmentIndex,
+          reason: "translated-segment-not-string"
+        }
+      );
+    }
+
+    return response;
+  }
+
   return {
     getLanguageDefinition(languageId) {
       const language = languages.find((item) => item.id === languageId) || null;
@@ -72,11 +121,22 @@ function createTranslateService({
           activeAbort = () => request.abort?.();
 
           try {
-            return await request;
+            const response = await request;
+            return assertTranslatorContract(response, providerId, normalizedSegments.length);
           } catch (error) {
             lastError = error;
             const fallbackProviderId = providerOrder[index + 1];
             if (!fallbackProviderId || !isRecoverableProviderError(error)) {
+              throw error;
+            }
+
+            if (shouldSkipFallbackProvider(fallbackProviderId, options.preferredProvider)) {
+              diagnostics.record("translate-service.provider.fallback.skipped", {
+                fromProvider: providerId,
+                toProvider: fallbackProviderId,
+                errorCode: error.code || "",
+                reason: "google-web-explicit-only"
+              });
               throw error;
             }
 
@@ -88,7 +148,7 @@ function createTranslateService({
           }
         }
 
-        throw lastError || createError(ERROR_CODES.EDGE_TRANSLATE_FAILED, "No translator provider was available.");
+        throw lastError || createError(ERROR_CODES.NO_TRANSLATOR_AVAILABLE, "No translator provider was available.");
       })();
 
       return attachAbort(operation, () => {

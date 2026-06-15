@@ -48,7 +48,7 @@ test("translate service uses the preferred provider first when it succeeds", asy
   assert.deepEqual(result.translatedSegments, ["第一段"]);
 });
 
-test("translate service falls back to the secondary provider when the preferred provider returns a recoverable translate error", async () => {
+test("translate service does not automatically fallback from edge into google", async () => {
   const calls = [];
   const diagnosticsEvents = [];
   const service = createTranslateService({
@@ -79,22 +79,25 @@ test("translate service falls back to the secondary provider when the preferred 
     }
   });
 
-  const result = await service.translateSegments(
+  const request = service.translateSegments(
     ["one", "two"],
     language,
     { preferredProvider: "edge-web" }
   );
 
-  assert.deepEqual(calls, ["edge-web", "google-web"]);
-  assert.equal(result.provider, "google-web");
-  assert.deepEqual(result.translatedSegments, ["谷歌:one", "谷歌:two"]);
+  await assert.rejects(request, (error) => {
+    assert.equal(error.code, ERROR_CODES.EDGE_TRANSLATE_FAILED);
+    return true;
+  });
+  assert.deepEqual(calls, ["edge-web"]);
   assert.deepEqual(diagnosticsEvents, [
     {
-      event: "translate-service.provider.fallback",
+      event: "translate-service.provider.fallback.skipped",
       payload: {
         fromProvider: "edge-web",
         toProvider: "google-web",
-        errorCode: ERROR_CODES.EDGE_TRANSLATE_FAILED
+        errorCode: ERROR_CODES.EDGE_TRANSLATE_FAILED,
+        reason: "google-web-explicit-only"
       }
     }
   ]);
@@ -132,6 +135,82 @@ test("translate service respects reversed provider priority and falls back to ed
   assert.deepEqual(result.translatedSegments, ["微软"]);
 });
 
+test("translate service rejects provider responses with mismatched segment counts", async () => {
+  const calls = [];
+  const service = createTranslateService({
+    languages: [language],
+    providers: [{ id: "edge-web" }, { id: "google-web" }],
+    translators: {
+      "edge-web": {
+        translateSegments() {
+          calls.push("edge-web");
+          return Promise.resolve({
+            provider: "edge-web",
+            translatedSegments: ["only one"]
+          });
+        }
+      },
+      "google-web": {
+        translateSegments() {
+          calls.push("google-web");
+          return Promise.resolve({
+            provider: "google-web",
+            translatedSegments: ["fallback one", "fallback two"]
+          });
+        }
+      }
+    }
+  });
+
+  await assert.rejects(
+    service.translateSegments(
+      ["one", "two"],
+      language,
+      { preferredProvider: "edge-web" }
+    ),
+    (error) => {
+      assert.equal(error.code, "translator_contract_violation");
+      assert.equal(error.message, "Translator response did not match the request.");
+      assert.equal(error.metadata.providerId, "edge-web");
+      assert.equal(error.metadata.expectedSegmentCount, 2);
+      assert.equal(error.metadata.actualSegmentCount, 1);
+      return true;
+    }
+  );
+  assert.deepEqual(calls, ["edge-web"]);
+});
+
+test("translate service rejects provider responses with non-string translated segments", async () => {
+  const service = createTranslateService({
+    languages: [language],
+    providers: [{ id: "google-web" }],
+    translators: {
+      "google-web": {
+        translateSegments() {
+          return Promise.resolve({
+            provider: "google-web",
+            translatedSegments: ["ok", null]
+          });
+        }
+      }
+    }
+  });
+
+  await assert.rejects(
+    service.translateSegments(
+      ["one", "two"],
+      language,
+      { preferredProvider: "google-web" }
+    ),
+    (error) => {
+      assert.equal(error.code, "translator_contract_violation");
+      assert.equal(error.metadata.providerId, "google-web");
+      assert.equal(error.metadata.invalidSegmentIndex, 1);
+      return true;
+    }
+  );
+});
+
 test("translate service does not fall back when the preferred provider request is cancelled", async () => {
   let googleCalls = 0;
   const service = createTranslateService({
@@ -165,4 +244,24 @@ test("translate service does not fall back when the preferred provider request i
     return true;
   });
   assert.equal(googleCalls, 0);
+});
+
+test("translate service reports a provider-agnostic error when no translator implementation is available", async () => {
+  const service = createTranslateService({
+    languages: [language],
+    providers: [{ id: "edge-web" }, { id: "google-web" }],
+    translators: {}
+  });
+
+  const request = service.translateSegments(
+    ["one"],
+    language,
+    { preferredProvider: "edge-web" }
+  );
+
+  await assert.rejects(request, (error) => {
+    assert.equal(error.code, ERROR_CODES.NO_TRANSLATOR_AVAILABLE);
+    assert.equal(error.message, "No translator provider was available.");
+    return true;
+  });
 });

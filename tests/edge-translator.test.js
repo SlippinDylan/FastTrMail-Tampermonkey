@@ -87,6 +87,67 @@ test("edge translator normalizes non-2xx transport status into stable translate 
   );
 });
 
+test("edge translator splits long segment lists into bounded translate batches", async () => {
+  const requestBodies = [];
+  const translator = createEdgeTranslator({
+    edgeAuth: { getToken: async () => "a.b.c" },
+    xhr: {
+      request: async (details) => {
+        const body = JSON.parse(details.data);
+        requestBodies.push(body);
+        return {
+          status: 200,
+          responseText: JSON.stringify(body.map((item) => ({
+            translations: [{ text: `译:${item.text}` }]
+          })))
+        };
+      }
+    }
+  });
+  const segments = Array.from({ length: 21 }, (_item, index) => `segment-${index + 1}`);
+
+  const result = await translator.translateSegments(
+    segments,
+    { id: "zh-CN", microsoft: "zh-Hans", label: "简体中文" }
+  );
+
+  assert.deepEqual(requestBodies.map((body) => body.length), [20, 1]);
+  assert.deepEqual(result.translatedSegments, segments.map((segment) => `译:${segment}`));
+});
+
+test("edge translator rejects oversized single segments before auth or transport", async () => {
+  let authCalls = 0;
+  let requestCalls = 0;
+  const translator = createEdgeTranslator({
+    edgeAuth: {
+      async getToken() {
+        authCalls += 1;
+        return "a.b.c";
+      }
+    },
+    xhr: {
+      async request() {
+        requestCalls += 1;
+        return { status: 200, responseText: "[]" };
+      }
+    }
+  });
+
+  await assert.rejects(
+    translator.translateSegments(
+      ["x".repeat(10001)],
+      { id: "zh-CN", microsoft: "zh-Hans", label: "简体中文" }
+    ),
+    (error) => {
+      assert.equal(error.code, ERROR_CODES.EDGE_TRANSLATE_FAILED);
+      assert.equal(error.metadata.reason, "edge-segment-too-long");
+      return true;
+    }
+  );
+  assert.equal(authCalls, 0);
+  assert.equal(requestCalls, 0);
+});
+
 test("edge translator fails hard on malformed translation entries", async () => {
   const translator = createEdgeTranslator({
     edgeAuth: { getToken: async () => "a.b.c" },

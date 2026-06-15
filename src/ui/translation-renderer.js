@@ -5,6 +5,26 @@ function createTranslationRenderer({
   segmenter,
   document = globalThis.document
 }) {
+  function getMessageTranslationScope(descriptor) {
+    if (descriptor?.contentRoot instanceof globalThis.HTMLElement && descriptor.contentRoot.isConnected) {
+      return descriptor.contentRoot;
+    }
+
+    if (descriptor?.body instanceof globalThis.HTMLElement && descriptor.body.isConnected) {
+      return descriptor.body;
+    }
+
+    if (descriptor?.messageNode instanceof globalThis.HTMLElement && descriptor.messageNode.isConnected) {
+      return descriptor.messageNode;
+    }
+
+    if (descriptor?.card instanceof globalThis.HTMLElement && descriptor.card.isConnected) {
+      return descriptor.card;
+    }
+
+    return null;
+  }
+
   function removeInlineTranslations(bodyElement) {
     if (!(bodyElement instanceof globalThis.HTMLElement)) {
       return;
@@ -14,6 +34,78 @@ function createTranslationRenderer({
       bodyElement
         .querySelectorAll(`.${constants.INLINE_TRANSLATION_CLASS}, .${constants.SEGMENT_ANCHOR_CLASS}, .${constants.TRANSLATION_WRAPPER_CLASS}`)
         .forEach((node) => node.remove());
+    });
+  }
+
+  function clearMessageTranslations(descriptor) {
+    const scope = getMessageTranslationScope(descriptor);
+    if (!(scope instanceof globalThis.HTMLElement)) {
+      return;
+    }
+
+    runtimeState.withObserverMuted(() => {
+      scope
+        .querySelectorAll(`.${constants.INLINE_TRANSLATION_CLASS}, .${constants.SEGMENT_ANCHOR_CLASS}, .${constants.TRANSLATION_WRAPPER_CLASS}`)
+        .forEach((node) => node.remove());
+    });
+  }
+
+  function pruneMessageTranslations(descriptor, currentSegments) {
+    const scope = getMessageTranslationScope(descriptor);
+    if (!(scope instanceof globalThis.HTMLElement)) {
+      return;
+    }
+
+    const currentSegmentIds = new Set(
+      Array.isArray(currentSegments)
+        ? currentSegments
+          .map((segment) => segment?.id)
+          .filter(Boolean)
+        : []
+    );
+    if (currentSegmentIds.size === 0) {
+      clearMessageTranslations(descriptor);
+      return;
+    }
+
+    runtimeState.withObserverMuted(() => {
+      scope
+        .querySelectorAll(`.${constants.INLINE_TRANSLATION_CLASS}`)
+        .forEach((node) => {
+          const segmentId = node.getAttribute(constants.SEGMENT_ATTRIBUTE);
+          if (segmentId && currentSegmentIds.has(segmentId)) {
+            return;
+          }
+
+          const rowWrapper = node.closest(`tr.${constants.TRANSLATION_WRAPPER_CLASS}`);
+          if (rowWrapper instanceof globalThis.HTMLElement) {
+            rowWrapper.remove();
+            return;
+          }
+
+          const cellWrapper = node.closest(`td.${constants.TRANSLATION_WRAPPER_CLASS}`);
+          if (cellWrapper instanceof globalThis.HTMLElement) {
+            cellWrapper.remove();
+            return;
+          }
+
+          node.remove();
+        });
+
+      scope
+        .querySelectorAll(`.${constants.SEGMENT_ANCHOR_CLASS}`)
+        .forEach((node) => {
+          const translationNode = node.nextElementSibling;
+          if (
+            translationNode instanceof globalThis.HTMLElement &&
+            translationNode.classList.contains(constants.INLINE_TRANSLATION_CLASS) &&
+            currentSegmentIds.has(translationNode.getAttribute(constants.SEGMENT_ATTRIBUTE) || "")
+          ) {
+            return;
+          }
+
+          node.remove();
+        });
     });
   }
 
@@ -382,6 +474,7 @@ function createTranslationRenderer({
   }
 
   return {
+    clearMessageTranslations,
     clearMessageStatus,
     clearThreadRenderArtifacts,
     clearTitleTranslation,
@@ -390,6 +483,7 @@ function createTranslationRenderer({
     getMessageStatusMountTarget,
     getThreadRenderArtifactCounts,
     hasThreadRenderArtifacts,
+    pruneMessageTranslations,
     removeInlineTranslations,
     renderLoadingTranslations,
     renderMessageStatus,

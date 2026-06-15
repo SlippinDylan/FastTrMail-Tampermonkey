@@ -1,11 +1,12 @@
-module.exports = function createHeader({ version, author, iconDataUrl }) {
+module.exports = function createHeader({ version, author, iconUrl }) {
   return `// ==UserScript==
 // @name         FastTrMail
 // @namespace    https://github.com/dylanwang/FastTrMail-Tampermonkey
 // @version      ${version}
 // @author       ${author}
-// @description  Translate Fastmail message views inline with Microsoft Edge transport.
-// @icon         ${iconDataUrl}
+// @license      MIT
+// @description  Translate Fastmail message views inline with built-in web translators.
+// @icon         ${iconUrl}
 // @match        https://app.fastmail.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
