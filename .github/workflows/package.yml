@@ -48,10 +48,26 @@ jobs:
           echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
+      - name: Plan release publication
+        id: release_plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if current_release_sha="$(gh release view "$VERSION" --json targetCommitish --jq '.targetCommitish' 2>/dev/null)"; then
+            if [[ "$current_release_sha" != "$TESTED_SHA" ]]; then
+              echo "::notice::Version $VERSION is already published for $current_release_sha; skipping release publication."
+              echo 'publish=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo 'publish=true' >> "$GITHUB_OUTPUT"
+
       - name: Build userscript
+        if: steps.release_plan.outputs.publish == 'true'
         run: npm run build
 
       - name: Upload artifact
+        if: steps.release_plan.outputs.publish == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fasttrmail-tampermonkey-${{ steps.version.outputs.value }}
@@ -60,6 +76,7 @@ jobs:
             dist/fasttrmail-tampermonkey-${{ steps.version.outputs.value }}.user.js
 
       - name: Write workflow summary
+        if: steps.release_plan.outputs.publish == 'true'
         run: |
           {
             echo "## FastTrMail Tampermonkey package"
@@ -70,6 +87,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish versioned release asset
+        if: steps.release_plan.outputs.publish == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

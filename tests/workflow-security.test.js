@@ -18,6 +18,9 @@ test("release packaging waits for successful main-branch CI", () => {
   assert.match(workflow, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
   assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
   assert.match(workflow, /TESTED_SHA:.*workflow_run\.head_sha/);
+  assert.match(workflow, /id: release_plan/);
+  assert.match(workflow, /publish=false/);
+  assert.match(workflow, /if: steps\.release_plan\.outputs\.publish == 'true'/);
 });
 
 test("workflows pin every action to a full commit SHA", () => {
