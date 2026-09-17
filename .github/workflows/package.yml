@@ -4,29 +4,37 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - .gitignore
-      - README.md
-      - README.en.md
-      - LICENSE
-      - docs/**
+  workflow_run:
+    workflows:
+      - ci
+    types:
+      - completed
   workflow_dispatch:
 
 jobs:
   package:
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TESTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.TESTED_SHA }}
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -44,7 +52,7 @@ jobs:
         run: npm run build
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fasttrmail-tampermonkey-${{ steps.version.outputs.value }}
           path: |
@@ -62,7 +70,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish versioned release asset
-        if: github.ref == 'refs/heads/main'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -73,18 +80,18 @@ jobs:
             echo "Automated release build from \`main\`."
             echo ""
             echo "- Version: \`${VERSION}\`"
-            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Commit: \`${TESTED_SHA}\`"
           } > "$NOTES_FILE"
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             CURRENT_RELEASE_SHA="$(gh release view "$TAG_NAME" --json targetCommitish --jq '.targetCommitish')"
-            if [[ "$CURRENT_RELEASE_SHA" != "$GITHUB_SHA" ]]; then
-              echo "Version $VERSION is already published for commit $CURRENT_RELEASE_SHA. Bump package.json before publishing a new release from $GITHUB_SHA." >&2
+            if [[ "$CURRENT_RELEASE_SHA" != "$TESTED_SHA" ]]; then
+              echo "Version $VERSION is already published for commit $CURRENT_RELEASE_SHA. Bump package.json before publishing a new release from $TESTED_SHA." >&2
               exit 1
             fi
             gh release edit "$TAG_NAME" --title "$RELEASE_TITLE" --notes-file "$NOTES_FILE"
           else
-            gh release create "$TAG_NAME" --target "$GITHUB_SHA" --title "$RELEASE_TITLE" --notes-file "$NOTES_FILE"
+            gh release create "$TAG_NAME" --target "$TESTED_SHA" --title "$RELEASE_TITLE" --notes-file "$NOTES_FILE"
           fi
 
           gh release view "$TAG_NAME" --json assets --jq '.assets[].name' \
